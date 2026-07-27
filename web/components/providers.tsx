@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReactNode, useEffect, useState } from 'react';
 import { useWorkspace } from '@/stores/workspace';
 import { GlobalRealtime } from './GlobalRealtime';
+import { WatchlistNotifications } from './WatchlistNotifications';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -26,6 +27,7 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <GlobalRealtime />
+      <WatchlistNotifications />
       <div style={{ visibility: mounted ? 'visible' : 'hidden' }}>
         {children}
       </div>
