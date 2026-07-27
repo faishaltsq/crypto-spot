@@ -9,11 +9,6 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./backend/migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
-      - ./backend/migrations/002_market_pairs.sql:/docker-entrypoint-initdb.d/002_market_pairs.sql:ro
-      - ./backend/migrations/003_quality_and_versioning.sql:/docker-entrypoint-initdb.d/003_quality_and_versioning.sql:ro
-      - ./backend/migrations/004_recorder_and_outcomes.sql:/docker-entrypoint-initdb.d/004_recorder_and_outcomes.sql:ro
-      - ./backend/migrations/005_audit_fields.sql:/docker-entrypoint-initdb.d/005_audit_fields.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U signal -d signal"]
       interval: 5s
@@ -47,6 +42,23 @@ services:
       retries: 10
     restart: unless-stopped
 
+  migrate:
+    build:
+      context: ./backend
+    env_file:
+      - .env
+    environment:
+      MIGRATIONS_DIR: /migrations/versioned
+      MIGRATION_TIMEOUT_SECONDS: ${MIGRATION_TIMEOUT_SECONDS:-60}
+      MIGRATION_RETRIES: ${MIGRATION_RETRIES:-30}
+      MIGRATION_RETRY_DELAY_SECONDS: ${MIGRATION_RETRY_DELAY_SECONDS:-2}
+    entrypoint: ["/migrate"]
+    command: ["up"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   backend:
     build:
       context: ./backend
@@ -57,6 +69,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       ai-service:

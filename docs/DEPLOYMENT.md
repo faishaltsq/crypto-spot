@@ -2,7 +2,21 @@
 
 ## Local deployment
 
-Copy `.env.example` to `.env`, then start the Compose stack. The initial database script runs only when the PostgreSQL volume is created for the first time.
+Copy `.env.example` to `.env`, then start the Compose stack. The one-shot `migrate` service waits for PostgreSQL health, runs versioned migrations, then permits backend startup. Existing PostgreSQL volumes are retained and migrated in place.
+
+## Migrations
+
+`golang-migrate` owns schema history in PostgreSQL's `schema_migrations` table and uses PostgreSQL's migration lock. Migration SQL is immutable under `backend/migrations/versioned/`; its SHA-256 manifest is checked before database writes.
+
+```bash
+make migrate-up
+make migrate-status
+make migrate-version
+make migrate-down
+make migrate-repair
+```
+
+`down` rolls back only latest migration. A dirty migration state causes a non-zero exit. Inspect and repair affected schema, then run `make migrate-repair` to clear its dirty marker before retrying. Migration logs never print `DATABASE_URL`.
 
 ## Production changes
 
