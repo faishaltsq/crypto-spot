@@ -1,0 +1,37 @@
+# Crypto Spot Signal - Progress Summary & Agent Handoff Context
+
+You are taking over the development of the `crypto-spot-signal` project. This is a paper-trading scanner and signal generator for Gate.io public SPOT markets.
+
+## 🛑 STRICT CORE RULES (DO NOT BREAK)
+1. **NO AUTO TRADING**: Do not add any order execution, private API keys, deposit/withdrawal, or portfolio management features. This is strictly for generating paper signals and analysis.
+2. **NO PLACEHOLDERS**: Never use hardcoded/fallback/placeholder data to bypass pipeline logic. If data is missing, the system must explicitly fail gracefully (e.g., status `UNAVAILABLE` or `WAITING DATA`) and audit why it failed.
+3. **STRICT SIGNAL VALIDITY**: `BUY_CONFIRMED` signals can ONLY be generated if:
+   - Rule Score >= 80
+   - Spoof Penalty (Spoof Score) <= 60
+   - Trend Alignment >= 0.20
+   - AI Decision is CONFIRM
+
+## 📈 RECENT PROGRESS & CURRENT STATE
+
+### 1. 8-Gate Signal Pipeline & Data Integrity
+- We completely restructured the signal generation into a strict 8-gate pipeline to ensure ONLY verifiable, high-quality signals pass.
+- **Data Quality Scoring**: Pairs are actively scored on data quality. If critical data (candles, orderbooks) is missing, the score drops, and signal generation is blocked.
+- **Auditability**: Signals and pairs now track exactly what data is missing (`missing_features`) and why they were blocked (`blocked_reasons`).
+- **MOCK Isolation**: A robust mocking system exists for offline testing. The frontend now strictly visualizes "MOCK" badges anywhere synthetic data is used to prevent confusion with live Gate.io data.
+
+### 2. Frontend / UI Polish
+- **Real-time Synchronization**: The UI connects via WebSockets (`GlobalRealtime`). It properly reflects state changes.
+- **Auto-Closing Signals**: Active signals are evaluated dynamically against live prices. If the price hits Take Profit or Stop Loss, the signal is instantly moved to "Recent History" (Closed/Invalidated).
+- **Navigation & Usability**: 
+  - Clicking an active signal card instantly navigates to the terminal chart for that specific pair.
+  - Signal detail modals now feature 1-click copy buttons for Entry Price, Take Profit (TP), and Stop Loss (SL) to easily copy to a paper trading account.
+  - Status pills (like `WAITING DATA`) have hover tooltips showing exactly which features are missing.
+
+### 3. Backend Outcomes & Database
+- Developed an outcome tracking service (`backend/internal/outcome/service.go`) to evaluate signals over multiple horizons (5m, 15m, 1h, 4h).
+- Added proper PostgreSQL schema migrations (`003`, `004`, `005`) for `signal_outcomes_v2`, `market_events`, and audit fields (`data_source`, `data_quality_status`, `missing_features`, `blocked_reasons`).
+
+## 🚀 YOUR NEXT OBJECTIVES
+Please continue improving the project with a focus on observability, system resilience, and further UI polish. Ensure any new features strictly respect the "No Auto Trading" and "Strict Data Integrity" rules outlined above. 
+
+Analyze the current source code to familiarize yourself with the 8-gate pipeline in the backend and the Zustand store (`web/stores/market.ts`) on the frontend before making modifications.
