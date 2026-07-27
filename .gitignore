@@ -10,6 +10,8 @@ __pycache__/
 data/
 coverage/
 test-results/
+backend/server
+backend/server.exe
 
 *.tsbuildinfo
 .agent-locks/

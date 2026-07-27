@@ -14,6 +14,7 @@ export interface QualityReport {
   score: number | null;
   status: QualityStatus;
   reasons: string[];
+  scoreFormula?: string;
   ruleResults: QualityRule[];
   signalAllowed: boolean;
   evaluatedAt: string;
@@ -44,9 +45,13 @@ async function request<T>(path: string): Promise<T> {
 }
 
 export const qualityApi = {
-  pairs: async () => {
-    const response = await request<{ pairs: Array<Record<string, unknown>> }>('/api/v1/quality/pairs?page=1&limit=100&sort=quality_score');
-    return response.pairs.map(normalizeReport);
+  pairs: async (page: number, status: string, signalAllowed: string, minimumScore: string, sort: string) => {
+    const query = new URLSearchParams({ page: String(page), limit: '50', sort });
+    if (status !== 'ALL') query.set('status', status);
+    if (signalAllowed !== 'ALL') query.set('signal_allowed', signalAllowed === 'YES' ? 'true' : 'false');
+    if (minimumScore) query.set('minimum_score', minimumScore);
+    const response = await request<{ pairs: Array<Record<string, unknown>>; total: number }>(`/api/v1/quality/pairs?${query}`);
+    return { pairs: response.pairs.map(normalizeReport), total: response.total };
   },
   stats: async () => {
     const value = await request<Record<string, unknown>>('/api/v1/quality/summary');
@@ -64,7 +69,7 @@ function normalizeReport(value: Record<string, unknown>): QualityReport {
   const candle = value.candle as { last_closed_at?: string } | undefined;
   return {
     symbol: String(value.symbol), score: typeof value.quality_score === 'number' ? value.quality_score : null, status: value.quality_status as QualityStatus,
-    reasons: Array.isArray(value.blocked_reasons) ? value.blocked_reasons.map(String) : [], ruleResults: Array.isArray(value.rule_results) ? value.rule_results as QualityRule[] : [], signalAllowed: value.signal_allowed === true,
+    reasons: Array.isArray(value.blocked_reasons) ? value.blocked_reasons.map(String) : [], scoreFormula: typeof value.score_formula === 'string' ? value.score_formula : undefined, ruleResults: Array.isArray(value.rule_results) ? value.rule_results as QualityRule[] : [], signalAllowed: value.signal_allowed === true,
     evaluatedAt: String(value.updated_at), freshness: { trade: stream('trade_stream'), ticker: stream('ticker_stream'), book: orderbook?.last_update_at, candle: candle?.last_closed_at },
     sequence: { resyncCount: orderbook?.resync_count, reconnectCount: orderbook?.reconnect_count }, pipeline: { queueUtilization: typeof value.queue_utilization === 'number' ? value.queue_utilization : undefined },
     persistence: { redisLatencyMs: typeof value.redis_latency_ms === 'number' ? value.redis_latency_ms : undefined, dbBacklogSize: typeof value.database_backlog_size === 'number' ? value.database_backlog_size : undefined },

@@ -26,6 +26,20 @@ function parseUrl() {
   return { pairs, timeframe: timeframes.includes(params.get('timeframe') ?? '') ? params.get('timeframe')! : '15m', lookback: lookbacks.includes(params.get('lookback') ?? '') ? params.get('lookback')! : '24h', marketTier: [1, 2, 3].includes(marketTier) ? marketTier : undefined, minimumDataQuality: Number.isFinite(minimumDataQuality) && minimumDataQuality >= 0 && minimumDataQuality <= 100 ? minimumDataQuality : undefined, activeSignalOnly: params.get('activeSignalOnly') === 'true' };
 }
 function format(value: unknown): string { if (value === null || value === undefined) return 'Partial'; if (typeof value === 'boolean') return value ? 'Yes' : 'No'; if (typeof value === 'number') return new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(value); return String(value); }
+function arrayOrEmpty<T>(value: T[] | null | undefined): T[] { return Array.isArray(value) ? value : []; }
+function normalizeCompare(response: CompareResponse): CompareResponse {
+  return {
+    ...response,
+    unavailable: arrayOrEmpty(response.unavailable),
+    pairs: arrayOrEmpty(response.pairs).map((pair) => ({
+      ...pair,
+      pricePerformance: arrayOrEmpty(pair.pricePerformance),
+      supportingEvidence: arrayOrEmpty(pair.supportingEvidence),
+      contradictingEvidence: arrayOrEmpty(pair.contradictingEvidence),
+      partialMetrics: arrayOrEmpty(pair.partialMetrics),
+    })),
+  };
+}
 function historical(pair: ComparePair, label: string) { const h = pair.historical; if (label === 'Net return %') return h.netReturn; if (label === 'Win rate') return h.winRate === null ? null : h.winRate * 100; if (label === 'Sample count') return h.sampleCount; if (label === 'Net expectancy %') return h.netExpectancy; if (label === 'MFE %') return h.mfe; return h.mae; }
 function highlight(label: string, pairs: ComparePair[], pair: ComparePair) { const value = label === 'Liquidity score' ? pair.liquidityScore : label === 'Spread bps' ? pair.spreadBps : label === 'Spoof score' ? pair.spoofScore : label === 'Orderbook imbalance' ? Math.abs(pair.orderbookImbalance ?? 0) : label === 'Data quality' ? pair.dataQualityScore : label === 'Signal score' ? pair.signalScore : label === 'Net expectancy %' ? pair.historical.netExpectancy : null; if (value === null) return ''; const comparable = pairs.map(p => label === 'Liquidity score' ? p.liquidityScore : label === 'Spread bps' ? p.spreadBps : label === 'Spoof score' ? p.spoofScore : label === 'Orderbook imbalance' ? Math.abs(p.orderbookImbalance ?? 0) : label === 'Data quality' ? p.dataQualityScore : label === 'Signal score' ? p.signalScore : p.historical.netExpectancy).filter((v): v is number => v !== null); const target = (label === 'Spread bps' || label === 'Spoof score') ? Math.min(...comparable) : Math.max(...comparable); if (value !== target) return ''; return label === 'Liquidity score' ? 'Highest liquidity' : label === 'Spread bps' ? 'Lowest spread' : label === 'Spoof score' ? 'Lowest spoof risk' : label === 'Orderbook imbalance' ? 'Strongest order flow' : label === 'Data quality' ? 'Highest data quality' : label === 'Signal score' ? 'Highest signal score' : 'Highest historical net expectancy'; }
 
@@ -40,7 +54,7 @@ export default function ComparePage() {
   useEffect(() => { if (!state) return; const params = new URLSearchParams({ pairs: state.pairs.join(','), timeframe: state.timeframe, lookback: state.lookback }); if (state.marketTier) params.set('marketTier', String(state.marketTier)); if (state.minimumDataQuality !== undefined) params.set('minimumDataQuality', String(state.minimumDataQuality)); if (state.activeSignalOnly) params.set('activeSignalOnly', 'true'); window.history.replaceState(null, '', `/compare?${params}`); window.dispatchEvent(new CustomEvent('compare-subscription', { detail: { action: 'subscribe', pairs: state.pairs } })); return () => { window.dispatchEvent(new CustomEvent('compare-subscription', { detail: { action: 'unsubscribe', pairs: state.pairs } })); }; }, [state]);
   useEffect(() => { const update = (event: Event) => { const feature = (event as CustomEvent).detail as { symbol: string; price: number; change24hPercent: number; quoteVolume24h: number; relativeVolume1m: number; liquidityScore: number; orderbookImbalance: number; spoofScore: number; trendAlignment: number; ruleScore: number; dataQualityScore: number; dataQualityStatus: ComparePair['dataQualityStatus']; calculatedAt: string }; if (!state?.pairs.includes(feature.symbol)) return; queryClient.setQueryData<CompareResponse>(['compare', state], current => current ? { ...current, pairs: current.pairs.map(pair => pair.symbol === feature.symbol ? { ...pair, price: feature.price, change24hPercent: feature.change24hPercent, quoteVolume24h: feature.quoteVolume24h, relativeVolume: feature.relativeVolume1m, liquidityScore: feature.liquidityScore, orderbookImbalance: feature.orderbookImbalance, spoofScore: feature.spoofScore, multiTimeframeAlignment: feature.trendAlignment, signalScore: feature.ruleScore, dataQualityScore: feature.dataQualityScore, dataQualityStatus: feature.dataQualityStatus, freshness: { ...pair.freshness, lastMarketUpdate: feature.calculatedAt, isStale: false } } : pair) } : current); }; window.addEventListener('compare-update', update); return () => window.removeEventListener('compare-update', update); }, [queryClient, state]);
   if (!state) return null;
-  const response = snapshot.data as CompareResponse | undefined;
+  const response = snapshot.data ? normalizeCompare(snapshot.data as CompareResponse) : undefined;
   const selected = new Set(state.pairs);
   const candidates = search ? (active.data ?? []).filter(pair => pair.Symbol.includes(search.toUpperCase()) && !selected.has(pair.Symbol)) : [];
   const setFilter = (key: 'timeframe' | 'lookback', value: string) => setState({ ...state, [key]: value });

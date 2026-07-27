@@ -58,10 +58,14 @@ func (s *Server) qualityPairs(w http.ResponseWriter, r *http.Request) {
 	if limit > 100 {
 		limit = 100
 	}
-	start := (page - 1) * limit
-	if start > len(filtered) {
-		start = len(filtered)
+	maxPage := (len(filtered) + limit - 1) / limit
+	if maxPage == 0 {
+		maxPage = 1
 	}
+	if page > maxPage {
+		page = maxPage
+	}
+	start := (page - 1) * limit
 	end := start + limit
 	if end > len(filtered) {
 		end = len(filtered)
@@ -154,13 +158,19 @@ func qualityPairPayload(report quality.QualityReport, tier int, marketMode strin
 	if tier > 0 {
 		tierValue = tier
 	}
-	return map[string]interface{}{"symbol": report.Symbol, "tier": tierValue, "exchange": "GATE", "market_type": "SPOT", "data_source": strings.ToUpper(marketMode), "quality_score": report.Score, "quality_status": report.Status, "signal_allowed": report.SignalAllowed, "trade_stream": map[string]interface{}{"last_event_at": nullableTimestamp(report.Freshness.Trade)}, "ticker_stream": map[string]interface{}{"last_event_at": nullableTimestamp(report.Freshness.Ticker)}, "orderbook": map[string]interface{}{"status": orderbookStatus(report), "resync_count": nil, "reconnect_count": nil, "last_update_at": nullableTimestamp(report.Freshness.Book)}, "candle": map[string]interface{}{"last_closed_at": nullableTimestamp(report.Freshness.Candle)}, "queue_utilization": report.Pipeline.QueueUtilization, "redis_latency_ms": report.Persistence.RedisLatencyMs, "database_backlog_size": report.Persistence.DBBacklogSize, "missing_features": failedRuleCodes(report, quality.ReasonIncompleteFeatures), "blocked_reasons": report.Reasons, "rule_results": report.RuleResults, "updated_at": report.EvaluatedAt.UTC().Format(time.RFC3339)}
+	return map[string]interface{}{"symbol": report.Symbol, "tier": tierValue, "exchange": "GATE", "market_type": "SPOT", "data_source": strings.ToUpper(marketMode), "quality_score": report.Score, "quality_status": report.Status, "signal_allowed": report.SignalAllowed, "score_formula": "final_quality_score = max(0, 100 - sum(failed rule penalties))", "trade_stream": map[string]interface{}{"last_event_at": nullableTimestamp(report.Freshness.Trade)}, "ticker_stream": map[string]interface{}{"last_event_at": nullableTimestamp(report.Freshness.Ticker)}, "orderbook": map[string]interface{}{"status": orderbookStatus(report), "resync_count": nullableCount(report.Sequence.ResyncCount), "reconnect_count": nullableCount(report.Sequence.ReconnectCount), "last_update_at": nullableTimestamp(report.Freshness.Book)}, "candle": map[string]interface{}{"last_closed_at": nullableTimestamp(report.Freshness.Candle)}, "queue_utilization": report.Pipeline.QueueUtilization, "redis_latency_ms": report.Persistence.RedisLatencyMs, "database_backlog_size": report.Persistence.DBBacklogSize, "missing_features": failedRuleCodes(report, quality.ReasonIncompleteFeatures), "blocked_reasons": report.Reasons, "rule_results": report.RuleResults, "updated_at": report.EvaluatedAt.UTC().Format(time.RFC3339)}
 }
 func nullableTimestamp(value time.Time) interface{} {
 	if value.IsZero() {
 		return nil
 	}
 	return value.UTC().Format(time.RFC3339)
+}
+func nullableCount(value int) interface{} {
+	if value == 0 {
+		return nil
+	}
+	return value
 }
 func failedRuleCodes(report quality.QualityReport, code quality.ReasonCode) []string {
 	for _, result := range report.RuleResults {

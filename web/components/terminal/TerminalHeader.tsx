@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { Activity, Clock, Settings, Maximize, RefreshCw, LayoutTemplate, Sun, Moon, Monitor } from 'lucide-react';
 import { useWorkspace } from '@/stores/workspace';
 
@@ -9,6 +10,7 @@ interface TerminalHeaderProps {
 }
 
 export function GlobalHeader({ symbol = '' }: { symbol?: string }) {
+	const pathname = usePathname();
   const { 
     showLeftPanel, toggleLeftPanel, 
     showRightPanel, toggleRightPanel,
@@ -30,7 +32,7 @@ export function GlobalHeader({ symbol = '' }: { symbol?: string }) {
         <Link href={symbol ? `/terminal/${symbol}` : '/terminal'} className="nav-item">Terminal</Link>
         <Link href="/signals" className="nav-item">Signals</Link>
         <Link href="/performance" className="nav-item">Performance</Link>
-        <Link href="/data-quality" className="nav-item">Data Quality</Link>
+        <Link href="/data-quality" className={`nav-item ${pathname === '/data-quality' ? 'active' : ''}`}>Data Quality</Link>
         <Link href="/system-health" className="nav-item">System Health</Link>
         <Link href="/compare" className="nav-item">Compare</Link>
         <Link href="/watchlist" className="nav-item">Watchlist</Link>

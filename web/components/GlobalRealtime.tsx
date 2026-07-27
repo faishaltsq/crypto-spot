@@ -34,6 +34,9 @@ export function GlobalRealtime() {
         case 'compare.snapshot':
           window.dispatchEvent(new CustomEvent('compare-update', { detail: message.data }));
           break;
+        case 'quality.snapshot':
+          window.dispatchEvent(new CustomEvent('quality-updated'));
+          break;
         case 'signal.new':
           // Play sound on new signal
           const audio = new Audio('/notification.mp3');

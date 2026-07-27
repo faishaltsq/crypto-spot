@@ -1,13 +1,39 @@
 # Dynamic Signal Threshold Tasks
 
+## Repository Integration 2026-07-27
+
+- [ ] Commit completed worktree changes
+  - Owner: `opencode-integration`
+  - Started (UTC): `2026-07-27T13:40:00Z`
+  - Files: `.gitignore`, `tasks/todo.md`
+  - Verify: `git diff --check; cd backend; go test ./...; cd web; npm run build`
+  - State: `done`
+  - Completed (UTC): `2026-07-27T13:40:00Z`
+  - Result: staged completed Compare and Data Quality work, coordination docs, and binary ignores; excluded generated backend binaries.
+  - Verify: `git diff --check`, `cd backend; go test ./...`, and `cd web; npm run build` passed.
+
+## Compare Null Collection Fix 2026-07-27
+
+- [x] Normalize nullable Compare API collections
+  - Owner: `opencode-compare-fix`
+  - Started (UTC): `2026-07-27T13:12:38Z`
+  - Files: `web/app/compare/page.tsx`, `tasks/todo.md`
+  - Verify: `cd web; npm run build`
+  - State: `done`
+  - Result: `null` API collection fields normalize to empty arrays before Compare rendering; scalar null still renders as `Partial`.
+  - Verify: `cd web; npm run build` passed. Browser screenshot captured without the `.length` runtime exception.
+
 ## Data Quality Route 2026-07-27
 
-- [ ] Data Quality App Router page
+- [x] Data Quality App Router page
   - Owner: `opencode-data-quality`
   - Started (UTC): `2026-07-27T12:38:35Z`
-  - Files: `web/app/data-quality/page.tsx`, `web/lib/data-quality.ts`, `web/app/data-quality/loading.tsx`, `web/app/data-quality/error.tsx`, `tasks/todo.md`
+  - Files: `web/app/data-quality/page.tsx`, `web/lib/data-quality.ts`, `web/app/data-quality/loading.tsx`, `web/app/data-quality/error.tsx`, `web/components/terminal/TerminalHeader.tsx`, `web/components/GlobalRealtime.tsx`
   - Verify: `cd web; npm run build`
-  - State: `in_progress`
+  - State: `done`
+  - Result: `/data-quality` production route builds; quality API pagination/summary/history/reasons added; global WebSocket `quality.snapshot` refreshes page.
+  - Verify: `cd backend; go test ./...` passed. `cd web; npm run build` passed.
+  - Handoff: shared `server.go` has no pending Data Quality diff, but other active worktree changes remain. Do not stage unrelated files.
 
 - [x] Threshold package and unit tests.
 - [x] Threshold feature inputs.
