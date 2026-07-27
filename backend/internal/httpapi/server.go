@@ -79,8 +79,11 @@ func New(
 		r.Get("/performance", server.performance)
 
 		// Data quality endpoints
+		r.Get("/quality/summary", server.qualitySummary)
 		r.Get("/quality/pairs", server.qualityPairs)
 		r.Get("/quality/pairs/{symbol}", server.qualityPair)
+		r.Get("/quality/reasons", server.qualityReasons)
+		r.Get("/quality/history/{symbol}", server.qualityHistory)
 		r.Get("/quality/stats", server.qualityStats)
 		r.Get("/health/system", server.systemHealth)
 		r.Get("/settings/preferences", server.settingsPreferences)

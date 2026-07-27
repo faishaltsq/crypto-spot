@@ -22,15 +22,17 @@ func (e *Evaluator) Evaluate(snapshot market.PairSnapshot, health PairHealthInpu
 	health.Now = now
 
 	score, reasons, ruleResults := ComputeScore(health, e.cfg)
-	status := ScoreToStatus(score)
+	status := statusFor(score, reasons)
 
 	return QualityReport{
-		Symbol:        snapshot.Symbol,
-		Score:         score,
-		Status:        status,
-		Reasons:       reasons,
-		RuleResults:   ruleResults,
-		SignalAllowed: score >= e.cfg.MinSignalScore,
+		Symbol:      snapshot.Symbol,
+		Score:       score,
+		Status:      status,
+		Reasons:     reasons,
+		RuleResults: ruleResults,
+		// A non-VALID report never produces a signal, even if a weighted score
+		// remains above the threshold after a non-critical rule penalty.
+		SignalAllowed: status == StatusValid && score >= e.cfg.MinSignalScore,
 		EvaluatedAt:   now,
 		Freshness: FreshnessMetrics{
 			Trade:  health.LastTradeTimestamp,
@@ -48,6 +50,25 @@ func (e *Evaluator) Evaluate(snapshot market.PairSnapshot, health PairHealthInpu
 	}
 }
 
+func statusFor(score float64, reasons []ReasonCode) QualityStatus {
+	for _, reason := range reasons {
+		if reason == ReasonOrderbookUnsynced || reason == ReasonOrderbookResync {
+			return StatusUnsynced
+		}
+	}
+	for _, reason := range reasons {
+		if reason == ReasonInsufficientData || reason == ReasonIncompleteFeatures {
+			return StatusIncomplete
+		}
+	}
+	for _, reason := range reasons {
+		if reason == ReasonTradeStreamStale || reason == ReasonTickerStreamStale || reason == ReasonCandleGap || reason == ReasonReceiveTimestampLag {
+			return StatusStale
+		}
+	}
+	return ScoreToStatus(score)
+}
+
 // BuildHealthInput constructs a PairHealthInput from a market.PairSnapshot.
 // Additional runtime metrics (queue utilization, redis latency, db backlog, reconnect time)
 // must be set by the caller after this returns.
@@ -63,7 +84,7 @@ func BuildHealthInput(snapshot market.PairSnapshot) PairHealthInput {
 		BookBidDepthQuote: snapshot.Book.BidDepthQuote,
 		BookAskDepthQuote: snapshot.Book.AskDepthQuote,
 		LastPrice:         snapshot.LastPrice,
-		LastBookTimestamp:  snapshot.Book.UpdatedAt,
+		LastBookTimestamp: snapshot.Book.UpdatedAt,
 	}
 
 	// Last trade timestamp: use the most recent trade

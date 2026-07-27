@@ -1,82 +1,53 @@
-# Implementation Plan: Paper Execution Simulation Integration
-
-## Objective
-Persist per-notional paper fills for confirmed signals, evaluate exit fills from live order book depth, then expose net outcome returns to performance APIs. No order execution, private exchange API, or trading UI is in scope.
-
-## Design
-- Version 7 adds `paper_execution_simulations`, unique on `(signal_id, notional)`.
-- Entry uses ask-side order-book walk. Exit uses bid-side walk. Missing book is `INCOMPLETE`; depth shortfall is `PARTIAL_FILL`.
-- Monetary values are USDT. Return decimals and percentages are separate API fields.
-- Outcome horizon values carry gross/net returns. Performance aggregates persisted net 1h horizon values, excluding unavailable simulation.
-
-## Tasks
-- [ ] Add migration and simulation math tests.
-- [ ] Persist entry simulations immediately after confirmed signal save.
-- [ ] Update exits through outcome loop; preserve per-notional entry state.
-- [ ] Add simulations to signal API/history/export and net performance summary.
-- [ ] Verify migration, integration, build, review, commit.
-
-## Risks
-| Risk | Mitigation |
-| --- | --- |
-| Missing levels | Persist explicit incomplete status; do not create zero costs. |
-| Insufficient levels | Persist fill/unfilled amount and partial status. |
-| Duplicate scanner run | DB unique constraint and upsert protect entry records. |
-| Stale outcome | Horizon JSON is updated from persisted simulation result, not raw price-only return. |
-
-# Implementation Plan: AI Reviewer Safety Layer
+# Implementation Plan: Dynamic Signal Threshold
 
 ## Overview
-Replace existing loosely bounded reviewer integration with explicit review-only contracts. Keep rule engine as sole authority for candidate status and confirmation. Persist AI review audit data separately.
+Make dynamic threshold a decision gate, audit every calculation, expose it through existing signal API, and render its full breakdown in Signal Evidence.
 
 ## Architecture Decisions
-- Backend constructs strict feature-summary DTO. AI service rejects all fields outside schema.
-- `AI_ENABLED=false` bypasses remote service and uses deterministic review. Missing remote-provider key becomes one `AI_PROVIDER_MISCONFIGURED` fallback, with no network retry.
-- Provider calls remain isolated in AI service. Cache and circuit breaker live there because they control remote-provider cost/failure; backend also validates returned data before use.
-- AI review may only provide metadata for non-blocked candidate evaluation. It cannot mutate feature status, thresholds, prices, blocked reasons, or signal execution.
-- Persist reviews in a dedicated table; no raw request/provider response or secret fields stored.
+- `backend/internal/signals/threshold` owns threshold config, classifications, reason codes, validation, and calculation.
+- Existing `signals.threshold_detail` JSONB stores full breakdown; dedicated generated-column migration is unnecessary because JSONB is already persisted and returned by all signal queries.
+- `STRONG_DOWNTREND`, invalid data quality, high spoof risk, and low liquidity block confirmation. Blocked candidates are persisted as `BLOCKED` signal audits so UI/API can show reasons.
+- Feature snapshot carries explicit regime, volatility percentile, and correlation state. Missing regime/volatility are conservative and auditable.
 
 ## Task List
 
-### Phase 1: Contracts And Defaults
-- [ ] Task 1: Define safe environment defaults and typed reviewer input/output contracts.
-  - Acceptance: four supported providers; no paid default; strict decision schema and feature allowlist.
-  - Verify: focused Go/Python schema/config tests.
-  - Files: config, schemas, provider helpers, `.env.example`.
+### Phase 1: Threshold Foundation
+- [ ] Task 1: Add threshold models, defaults, validation, adjustments, calculator, reason codes.
+  - Acceptance: configurable adjustments produce final threshold; hard blocks are explicit.
+  - Verify: `go test ./internal/signals/threshold`.
+- [ ] Task 2: Extend feature data with threshold inputs and calculate deterministic defaults.
+  - Acceptance: every evaluated feature has regime, volatility, correlation values or explicit missing state.
+  - Verify: `go test ./internal/features`.
 
-- [ ] Task 2: Implement deterministic and remote provider behavior with fallback, redaction, retry, cache, and circuit breaker.
-  - Acceptance: all failure modes produce deterministic fallback with generic reason codes; no secrets logged.
-  - Verify: AI service unit tests for provider/failure/cache/breaker cases.
-  - Files: AI service providers, service, tests.
+### Checkpoint: Foundation
+- [ ] Threshold unit tests pass.
 
-### Checkpoint: Provider Boundary
-- [ ] AI service tests pass.
-- [ ] Default configuration contains no functional-looking provider key and cannot call paid provider.
+### Phase 2: Signal Integration
+- [ ] Task 3: Use calculation before confirmation decision; persist blocked candidates and full audit breakdown.
+  - Acceptance: confirmation compares `RuleScore` against `FinalThreshold`; hard blocks cannot become `BUY_CONFIRMED`.
+  - Verify: `go test ./internal/signals ./internal/storage`.
+- [ ] Task 4: Add migration audit index/version and configuration wiring.
+  - Acceptance: schema migration validates and application loads configurable settings.
+  - Verify: `go test ./internal/migration ./cmd/migrate`.
 
-### Phase 2: Backend Safety And Persistence
-- [ ] Task 3: Restrict backend AI input, validate backend response, and preserve blocked signals/rules.
-  - Acceptance: raw feature object never crosses boundary; blocked feature cannot be promoted; AI errors cannot stop scanner.
-  - Verify: focused Go AI/signal tests.
-  - Files: backend AI client, signal engine, config, tests.
+### Checkpoint: Backend
+- [ ] `go test ./...` passes.
 
-- [ ] Task 4: Persist AI review audit fields through versioned migration and repository.
-  - Acceptance: required review metadata stored without secrets; prompt/schema versions recorded.
-  - Verify: migration checksum tests and storage tests/build.
-  - Files: migration, checksum manifest, domain, storage, scanner flow.
+### Phase 3: UI Evidence
+- [ ] Task 5: Type and render every threshold audit field in Signal Evidence.
+  - Acceptance: base, each adjustment, final, score, pass/fail, blocks, reasons, version shown.
+  - Verify: `npm run build` and frontend test.
 
-### Checkpoint: End-to-End Review
-- [ ] Full Go and Python tests pass.
-- [ ] Backend build succeeds.
-- [ ] No review path can place orders or access private Gate APIs.
+### Checkpoint: Complete
+- [ ] API response includes persisted breakdown.
+- [ ] Full backend and frontend verification passes.
 
-## Risks And Mitigations
+## Risks and Mitigations
 | Risk | Impact | Mitigation |
-| --- | --- | --- |
-| Existing signal engine couples AI decision to confirmation | High | Preserve eligibility checks before and after AI review; test blocked state cannot promote. |
-| Provider output malformed or adversarial | High | Strict Pydantic/Go validation and deterministic fallback. |
-| Provider outage/cost loop | High | One retry, TTL cache, circuit breaker, missing-key no-retry path. |
-| Secret disclosure | High | Environment-only keys, allowlisted request DTO, redacted errors, no raw payload persistence. |
-| Migration checksum enforcement | Medium | Update manifest only after migration SQL final and run migration tests. |
+|---|---|---|
+| Missing market inputs | Incorrect threshold | Conservative `UNDETERMINED` and `MISSING_*` reason codes |
+| Existing migrations checksum-gated | Startup failure | Update manifest only with migration hashes |
+| Blocked candidates previously discarded | No audit/UI evidence | Persist `BLOCKED` candidate signals |
 
 ## Open Questions
-- None. Store reviews separately and keep existing public signal shape unchanged unless current architecture requires relation exposure.
+- None. Defaults: `STRONG_DOWNTREND` blocks; missing volatility adds `0` with reason code.

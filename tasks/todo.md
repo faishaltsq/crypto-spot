@@ -1,35 +1,59 @@
-# Simulation Integration Tasks
+# Dynamic Signal Threshold Tasks
 
-- [ ] Per-notional execution migration and order-book math.
-  - Verify: `go test ./internal/execution_simulation`.
-- [ ] Runtime entry and outcome exit integration.
-  - Verify: simulator is invoked after confirmed signal persistence.
-- [ ] Persisted net performance/API integration.
-  - Verify: outcome and performance tests; migration v7.
+## Data Quality Route 2026-07-27
 
-# AI Reviewer Safety Tasks
+- [ ] Data Quality App Router page
+  - Owner: `opencode-data-quality`
+  - Started (UTC): `2026-07-27T12:38:35Z`
+  - Files: `web/app/data-quality/page.tsx`, `web/lib/data-quality.ts`, `web/app/data-quality/loading.tsx`, `web/app/data-quality/error.tsx`, `tasks/todo.md`
+  - Verify: `cd web; npm run build`
+  - State: `in_progress`
 
-- [ ] Task 1: Safe AI contracts and defaults
-  - Acceptance: supported provider enum, strict allowlisted DTOs, safe environment defaults.
-  - Verify: focused contract tests.
-  - Files: `ai-service/app/config.py`, `ai-service/app/schemas.py`, `backend/internal/config/config.go`, `.env.example`.
+- [x] Threshold package and unit tests.
+- [x] Threshold feature inputs.
+- [x] Engine final-threshold decision integration.
+- [x] Persist blocked audits and migration.
+- [x] Signal Evidence breakdown and tests.
+- [ ] Full verification and commit.
 
-- [ ] Task 2: Provider resilience layer
-  - Acceptance: deterministic fallback, key misconfiguration behavior, retry/cache/circuit breaker/redaction.
-  - Verify: `cd ai-service; python -m unittest discover -s tests -v`.
-  - Files: `ai-service/app/providers/`, `ai-service/app/service.py`, `ai-service/tests/`.
+## Settings Integration 2026-07-27
 
-- [ ] Task 3: Backend review-only integration
-  - Acceptance: feature summary only, strict response validation, no blocked override.
-  - Verify: `cd backend; go test ./internal/ai ./internal/signals`.
-  - Files: `backend/internal/ai/`, `backend/internal/signals/`, `backend/internal/config/`.
+- [ ] Settings endpoint, persistence, and UI integration
+  - Owner: `opencode-settings`
+  - Started (UTC): `2026-07-27T11:10:16Z`
+  - Files: `backend/internal/httpapi/server.go`, `backend/migrations/versioned/checksums.sha256`, `web/app/globals.css`, `tasks/todo.md`, `tasks/plan.md`
+  - Verify: `cd backend; go test ./...` and `cd web; npm run build`
+  - State: `done`
+  - Completed (UTC): `2026-07-27T11:10:16Z`
+  - Result: `go test ./...` and `npm run build` passed; migration version 11 clean; desktop/mobile screenshots captured.
+  - Changed: `backend/internal/settings/`, `backend/internal/storage/settings.go`, `backend/internal/httpapi/settings.go`, `backend/internal/httpapi/settings_test.go`, `backend/migrations/versioned/010_settings.*`, `web/app/settings/page.tsx`, `web/lib/settings.ts`, plus owned hunks in shared files.
+  - Handoff: commit blocked because `backend/internal/httpapi/server.go` is partly staged by performance work and shared CSS/migration manifest contain unrelated active changes. Do not stage or commit them together.
 
-- [ ] Task 4: AI review audit persistence
-  - Acceptance: required metadata stored without secrets or raw bodies.
-  - Verify: `cd backend; go test ./...; go build ./cmd/server`.
-  - Files: `backend/migrations/versioned/`, `backend/internal/domain/`, `backend/internal/storage/`, `backend/cmd/server/`.
+## Supervisor Audit 2026-07-27
 
-- [ ] Task 5: Full verification and phase commit
-  - Acceptance: full Go/Python tests pass, staged diff secret-scan clean, commit created.
-  - Verify: repository commands above.
-  - Files: only intended implementation/docs files.
+- [ ] Blocked: establish ownership and verification for all active changes.
+  - Owner: `supervisor-agent`
+  - Started (UTC): `2026-07-27T00:00:00Z`
+  - Files: `tasks/todo.md`
+  - Verify: `git diff --check`
+  - State: `blocked`
+  - Reason: 1,606 active changed lines have no task owner or lock; staged `docs/API.md` overlaps active API work.
+- [ ] Required: wire loaded signal settings into engine threshold and score configuration.
+  - Files: `backend/cmd/server/main.go`, `backend/internal/signals/engine.go`
+  - Verify: `cd backend; go test ./...`
+  - Reason: current startup loads settings but signal engine does not use them.
+- [ ] Required: map compare `1d` timeframe to persisted `24h` outcome horizon.
+  - Files: `backend/internal/httpapi/compare.go`, `backend/internal/httpapi/compare_test.go`
+  - Verify: `cd backend; go test ./internal/httpapi`
+- [ ] Required: prevent blocked audit candidates from consuming confirmation burst quota.
+  - Files: `backend/internal/signals/engine.go`, `backend/internal/signals/engine_test.go`
+  - Verify: `cd backend; go test ./internal/signals`
+
+- [ ] Performance Proof-of-Edge dashboard
+  - Owner: `opencode-performance`
+  - Started (UTC): `2026-07-27T00:00:00Z`
+  - Files: `backend/internal/performance/performance.go`, `backend/internal/performance/performance_test.go`, `web/components/performance-dashboard.tsx`, `docs/API.md`
+  - Verify: `docker run --rm -v "${PWD}:/src" -w /src/backend golang:1.23 go test ./internal/performance ./internal/storage ./internal/httpapi`
+  - State: `done`
+  - Completed (UTC): `2026-07-27T00:00:00Z`
+  - Result: backend focused tests and web build passed; committed `479a4ea`.

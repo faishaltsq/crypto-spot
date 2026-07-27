@@ -46,8 +46,8 @@ func TestQualityRules(t *testing.T) {
 				{Timestamp: now},
 			},
 			Candles: map[string][]domain.Candle{
-				"1m": make([]domain.Candle, 20),
-				"5m": make([]domain.Candle, 20),
+				"1m":  make([]domain.Candle, 20),
+				"5m":  make([]domain.Candle, 20),
 				"15m": make([]domain.Candle, 20),
 			},
 		}
@@ -77,13 +77,13 @@ func TestQualityRules(t *testing.T) {
 		input := BuildHealthInput(snapshot)
 		report := evaluator.Evaluate(snapshot, input)
 
-		if report.Status != StatusBlocked {
-			t.Errorf("expected BLOCKED, got %s", report.Status)
+		if report.Status != StatusUnsynced {
+			t.Errorf("expected UNSYNCED, got %s", report.Status)
 		}
 		if report.SignalAllowed {
 			t.Error("expected signal to not be allowed")
 		}
-		
+
 		found := false
 		for _, r := range report.Reasons {
 			if r == ReasonOrderbookUnsynced {
@@ -93,6 +93,22 @@ func TestQualityRules(t *testing.T) {
 		}
 		if !found {
 			t.Error("expected ReasonOrderbookUnsynced to be in reasons")
+		}
+	})
+
+	t.Run("Degraded quality blocks signal generation", func(t *testing.T) {
+		snapshot := market.PairSnapshot{Symbol: "BTC_USDT", LastPrice: 50000, LastMarketUpdate: now, Book: domain.BookMetrics{Synced: true, BestBid: 49990, BestAsk: 50010, MidPrice: 50000, SpreadBPS: 4, BidDepthQuote: 100000, AskDepthQuote: 100000, UpdatedAt: now}, Trades: []domain.Trade{{Timestamp: now}, {Timestamp: now}, {Timestamp: now}}, Candles: map[string][]domain.Candle{"1m": make([]domain.Candle, 20), "5m": make([]domain.Candle, 20), "15m": make([]domain.Candle, 20)}}
+		for i := range snapshot.Candles["1m"] {
+			snapshot.Candles["1m"][i].OpenTime = now.Add(-time.Duration(20-i) * time.Minute)
+		}
+		input := BuildHealthInput(snapshot)
+		input.QueueUtilization = 90
+		report := evaluator.Evaluate(snapshot, input)
+		if report.Status != StatusDegraded {
+			t.Fatalf("expected DEGRADED, got %s", report.Status)
+		}
+		if report.SignalAllowed {
+			t.Fatal("non-VALID report must block signal generation")
 		}
 	})
 }
