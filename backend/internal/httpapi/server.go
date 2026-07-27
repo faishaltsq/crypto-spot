@@ -71,6 +71,7 @@ func New(
 		r.Get("/terminal/{symbol}", server.terminalSnapshot)
 		r.Get("/config", server.publicConfig)
 		r.Get("/performance/summary", server.performanceSummary)
+		r.Get("/performance", server.performance)
 
 		// Data quality endpoints
 		r.Get("/quality/pairs", server.qualityPairs)
