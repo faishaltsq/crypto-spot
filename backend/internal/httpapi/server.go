@@ -22,13 +22,15 @@ import (
 )
 
 type Server struct {
-	cfg        config.Config
-	state      *runtimestate.State
-	market     *market.Store
-	repo       *storage.Repository
-	hub        *realtime.Hub
-	univSvc    *universe.Service
-	qualitySvc *quality.Service
+	cfg             config.Config
+	state           *runtimestate.State
+	market          *market.Store
+	repo            *storage.Repository
+	hub             *realtime.Hub
+	univSvc         *universe.Service
+	qualitySvc      *quality.Service
+	compareCache    *compareCache
+	settingsLimiter settingsRateLimiter
 }
 
 func New(
@@ -41,19 +43,21 @@ func New(
 	qualitySvc *quality.Service,
 ) http.Handler {
 	server := &Server{
-		cfg:        cfg,
-		state:      state,
-		market:     marketStore,
-		repo:       repo,
-		hub:        hub,
-		univSvc:    univSvc,
-		qualitySvc: qualitySvc,
+		cfg:             cfg,
+		state:           state,
+		market:          marketStore,
+		repo:            repo,
+		hub:             hub,
+		univSvc:         univSvc,
+		qualitySvc:      qualitySvc,
+		compareCache:    newCompareCache(3 * time.Second),
+		settingsLimiter: settingsRateLimiter{hits: make(map[string][]time.Time)},
 	}
 
 	router := chi.NewRouter()
 	router.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"http://localhost:*", "https://*"},
-		AllowedMethods:   []string{"GET", "POST", "OPTIONS"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
 		AllowCredentials: false,
 		MaxAge:           300,
@@ -71,6 +75,7 @@ func New(
 		r.Get("/terminal/{symbol}", server.terminalSnapshot)
 		r.Get("/config", server.publicConfig)
 		r.Get("/performance/summary", server.performanceSummary)
+		r.Get("/compare", server.compareSnapshot)
 		r.Get("/performance", server.performance)
 
 		// Data quality endpoints
@@ -78,11 +83,20 @@ func New(
 		r.Get("/quality/pairs/{symbol}", server.qualityPair)
 		r.Get("/quality/stats", server.qualityStats)
 		r.Get("/health/system", server.systemHealth)
+		r.Get("/settings/preferences", server.settingsPreferences)
+		r.Put("/settings/preferences", server.saveSettingsPreferences)
+		r.Get("/settings/system", server.systemSettings)
 
 		r.Route("/market/universe", func(r chi.Router) {
 			r.Get("/", server.universePairs)
 			r.Get("/stats", server.universeStats)
 			r.Post("/refresh", server.universeRefresh)
+		})
+		r.Route("/admin/settings", func(r chi.Router) {
+			r.Get("/", server.requireAdmin(server.adminSettings))
+			r.Put("/", server.requireAdmin(server.saveAdminSettings))
+			r.Get("/history", server.requireAdmin(server.adminSettingsHistory))
+			r.Post("/reset", server.requireAdmin(server.resetAdminSettings))
 		})
 	})
 	return router
@@ -133,7 +147,14 @@ func (s *Server) exportSignals(w http.ResponseWriter, r *http.Request) {
 
 	for _, sig := range signals {
 		notional, netReturn, simulationStatus := "", "", ""
-		if len(sig.Simulations) > 0 { simulation := sig.Simulations[0]; notional = fmt.Sprintf("%.2f", simulation.Notional); simulationStatus = simulation.SimulationStatus; if simulation.NetReturn != nil { netReturn = fmt.Sprintf("%.8f", *simulation.NetReturn) } }
+		if len(sig.Simulations) > 0 {
+			simulation := sig.Simulations[0]
+			notional = fmt.Sprintf("%.2f", simulation.Notional)
+			simulationStatus = simulation.SimulationStatus
+			if simulation.NetReturn != nil {
+				netReturn = fmt.Sprintf("%.8f", *simulation.NetReturn)
+			}
+		}
 		row := []string{
 			sig.ID,
 			sig.Symbol,

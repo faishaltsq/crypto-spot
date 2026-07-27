@@ -8,11 +8,13 @@ import type { RealtimeMessage } from "@/types/market";
 interface Options {
   onMessage: (message: RealtimeMessage) => void;
   onStatusChange?: (connected: boolean) => void;
+  onSocketChange?: (socket: WebSocket | null) => void;
 }
 
-export function useRealtime({ onMessage, onStatusChange }: Options): void {
+export function useRealtime({ onMessage, onStatusChange, onSocketChange }: Options): void {
   const callbackRef = useRef(onMessage);
   const statusRef = useRef(onStatusChange);
+  const socketRef = useRef(onSocketChange);
 
   useEffect(() => {
     callbackRef.current = onMessage;
@@ -21,6 +23,10 @@ export function useRealtime({ onMessage, onStatusChange }: Options): void {
   useEffect(() => {
     statusRef.current = onStatusChange;
   }, [onStatusChange]);
+
+  useEffect(() => {
+    socketRef.current = onSocketChange;
+  }, [onSocketChange]);
 
   useEffect(() => {
     let socket: WebSocket | null = null;
@@ -34,6 +40,7 @@ export function useRealtime({ onMessage, onStatusChange }: Options): void {
 
       socket.addEventListener("open", () => {
         attempt = 0;
+        socketRef.current?.(socket);
         statusRef.current?.(true);
       });
 
@@ -47,6 +54,7 @@ export function useRealtime({ onMessage, onStatusChange }: Options): void {
       });
 
       socket.addEventListener("close", () => {
+        socketRef.current?.(null);
         statusRef.current?.(false);
         if (stopped) return;
         attempt += 1;
@@ -63,6 +71,7 @@ export function useRealtime({ onMessage, onStatusChange }: Options): void {
 
     return () => {
       stopped = true;
+      socketRef.current?.(null);
       statusRef.current?.(false);
       if (retryTimer) clearTimeout(retryTimer);
       socket?.close();

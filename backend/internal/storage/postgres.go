@@ -120,7 +120,11 @@ func (r *Repository) SaveEntrySimulations(ctx context.Context, rows []execution_
 	}
 	results := r.pool.SendBatch(ctx, batch)
 	defer results.Close()
-	for range rows { if _, err := results.Exec(); err != nil { return err } }
+	for range rows {
+		if _, err := results.Exec(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -129,7 +133,9 @@ func (r *Repository) SimulationsForSignal(ctx context.Context, signalID string) 
 		entry_fee, entry_slippage, entry_slippage_bps, maximum_supported_notional, depth_coverage, liquidity_confidence,
 		filled_notional, unfilled_notional, partial_fill, simulation_status, simulated_at, created_at, updated_at
 		FROM paper_execution_simulations WHERE signal_id = $1::uuid ORDER BY notional`, signalID)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	defer rows.Close()
 	var simulations []execution_simulation.Simulation
 	for rows.Next() {
@@ -137,8 +143,12 @@ func (r *Repository) SimulationsForSignal(ctx context.Context, signalID string) 
 		if err := rows.Scan(&row.ID, &row.SignalID, &row.Notional, &row.ReferencePrice, &row.EstimatedEntryPrice,
 			&row.EntryFee, &row.EntrySlippage, &row.EntrySlippageBPS, &row.MaximumSupportedNotional, &row.DepthCoverage,
 			&row.LiquidityConfidence, &row.FilledNotional, &row.UnfilledNotional, &row.PartialFill, &row.Status,
-			&row.SimulatedAt, &row.CreatedAt, &row.UpdatedAt); err != nil { return nil, err }
-		if row.EstimatedEntryPrice != nil && row.FilledNotional != nil { row.BaseFilled = *row.FilledNotional / *row.EstimatedEntryPrice }
+			&row.SimulatedAt, &row.CreatedAt, &row.UpdatedAt); err != nil {
+			return nil, err
+		}
+		if row.EstimatedEntryPrice != nil && row.FilledNotional != nil {
+			row.BaseFilled = *row.FilledNotional / *row.EstimatedEntryPrice
+		}
 		simulations = append(simulations, row)
 	}
 	return simulations, rows.Err()
@@ -154,7 +164,11 @@ func (r *Repository) UpdateExitSimulations(ctx context.Context, rows []execution
 	}
 	results := r.pool.SendBatch(ctx, batch)
 	defer results.Close()
-	for range rows { if _, err := results.Exec(); err != nil { return err } }
+	for range rows {
+		if _, err := results.Exec(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -332,6 +346,58 @@ type SignalFilter struct {
 	OrderBy     string
 }
 
+type CompareHistory struct {
+	NetReturn     *float64
+	WinRate       *float64
+	SampleCount   int
+	NetExpectancy *float64
+	MFE           *float64
+	MAE           *float64
+}
+
+type CompareSignalState struct {
+	Active           bool
+	DynamicThreshold *float64
+}
+
+// CompareHistory aggregates only evaluated outcome values for one requested horizon.
+func (r *Repository) CompareHistory(ctx context.Context, symbol, timeframe string, since time.Time) (CompareHistory, error) {
+	var value CompareHistory
+	err := r.pool.QueryRow(ctx, `
+		WITH evaluated AS (
+			SELECT (o.returns->$3->>'netReturnPct')::double precision AS net_return,
+				o.max_favorable_pct, o.max_adverse_pct
+			FROM signal_outcomes_v2 o
+			JOIN signals s ON s.id = o.signal_id
+			WHERE o.symbol = $1 AND s.created_at >= $2
+			AND o.returns ? $3 AND (o.returns->$3->>'netReturnPct') IS NOT NULL
+		)
+		SELECT COUNT(*), AVG(net_return), AVG(CASE WHEN net_return > 0 THEN 1.0 ELSE 0.0 END),
+			AVG(net_return), AVG(max_favorable_pct), AVG(max_adverse_pct)
+		FROM evaluated`, symbol, since, timeframe).Scan(&value.SampleCount, &value.NetReturn, &value.WinRate, &value.NetExpectancy, &value.MFE, &value.MAE)
+	return value, err
+}
+
+func (r *Repository) CompareSignalState(ctx context.Context, symbol string) (CompareSignalState, bool, error) {
+	var value CompareSignalState
+	var status string
+	var thresholdJSON []byte
+	err := r.pool.QueryRow(ctx, `SELECT status, threshold_detail FROM signals WHERE symbol = $1 ORDER BY created_at DESC LIMIT 1`, symbol).Scan(&status, &thresholdJSON)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return value, false, nil
+	}
+	if err != nil {
+		return value, false, err
+	}
+	var threshold struct {
+		FinalThreshold *float64 `json:"finalThreshold"`
+	}
+	_ = json.Unmarshal(thresholdJSON, &threshold)
+	value.Active = status == "CONFIRMED" || status == "ACTIVE"
+	value.DynamicThreshold = threshold.FinalThreshold
+	return value, true, nil
+}
+
 func (r *Repository) ListSignalsFiltered(ctx context.Context, filter SignalFilter) ([]domain.Signal, int, error) {
 	if filter.Limit <= 0 || filter.Limit > 500 {
 		filter.Limit = 100
@@ -428,7 +494,9 @@ func (r *Repository) ListSignalsFiltered(ctx context.Context, filter SignalFilte
 		}
 		signals = append(signals, signal)
 	}
-	if err := r.attachSimulationsToSignals(ctx, signals); err != nil { return nil, 0, err }
+	if err := r.attachSimulationsToSignals(ctx, signals); err != nil {
+		return nil, 0, err
+	}
 	return signals, total, rows.Err()
 }
 
@@ -444,7 +512,9 @@ func (r *Repository) GetSignal(ctx context.Context, id string) (domain.Signal, e
 		WHERE id = $1::uuid
 	`, id)
 	signal, err := scanSignal(row)
-	if err != nil { return signal, err }
+	if err != nil {
+		return signal, err
+	}
 	return signal, r.attachSimulations(ctx, &signal)
 }
 
@@ -452,34 +522,49 @@ func (r *Repository) attachSimulations(ctx context.Context, signal *domain.Signa
 	rows, err := r.pool.Query(ctx, `SELECT notional, entry_fee, exit_fee, entry_slippage, exit_slippage,
 		entry_slippage_bps, exit_slippage_bps, gross_return, net_return, simulation_status
 		FROM paper_execution_simulations WHERE signal_id = $1::uuid ORDER BY notional`, signal.ID)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer rows.Close()
 	for rows.Next() {
 		var simulation domain.PaperSimulation
 		if err := rows.Scan(&simulation.Notional, &simulation.EntryFee, &simulation.ExitFee, &simulation.EntrySlippage,
 			&simulation.ExitSlippage, &simulation.EntrySlippageBPS, &simulation.ExitSlippageBPS, &simulation.GrossReturn,
-			&simulation.NetReturn, &simulation.SimulationStatus); err != nil { return err }
+			&simulation.NetReturn, &simulation.SimulationStatus); err != nil {
+			return err
+		}
 		signal.Simulations = append(signal.Simulations, simulation)
 	}
 	return rows.Err()
 }
 
 func (r *Repository) attachSimulationsToSignals(ctx context.Context, signals []domain.Signal) error {
-	if len(signals) == 0 { return nil }
+	if len(signals) == 0 {
+		return nil
+	}
 	ids := make([]string, len(signals))
 	byID := make(map[string]*domain.Signal, len(signals))
-	for i := range signals { ids[i], byID[signals[i].ID] = signals[i].ID, &signals[i] }
+	for i := range signals {
+		ids[i], byID[signals[i].ID] = signals[i].ID, &signals[i]
+	}
 	rows, err := r.pool.Query(ctx, `SELECT signal_id::text, notional, entry_fee, exit_fee, entry_slippage, exit_slippage,
 		entry_slippage_bps, exit_slippage_bps, gross_return, net_return, simulation_status
 		FROM paper_execution_simulations WHERE signal_id = ANY($1::uuid[]) ORDER BY signal_id, notional`, ids)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer rows.Close()
 	for rows.Next() {
-		var id string; var simulation domain.PaperSimulation
+		var id string
+		var simulation domain.PaperSimulation
 		if err := rows.Scan(&id, &simulation.Notional, &simulation.EntryFee, &simulation.ExitFee, &simulation.EntrySlippage,
 			&simulation.ExitSlippage, &simulation.EntrySlippageBPS, &simulation.ExitSlippageBPS, &simulation.GrossReturn,
-			&simulation.NetReturn, &simulation.SimulationStatus); err != nil { return err }
-		if signal := byID[id]; signal != nil { signal.Simulations = append(signal.Simulations, simulation) }
+			&simulation.NetReturn, &simulation.SimulationStatus); err != nil {
+			return err
+		}
+		if signal := byID[id]; signal != nil {
+			signal.Simulations = append(signal.Simulations, simulation)
+		}
 	}
 	return rows.Err()
 }

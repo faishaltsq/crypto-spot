@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,8 +13,10 @@ import (
 )
 
 type client struct {
-	conn *websocket.Conn
-	send chan []byte
+	conn         *websocket.Conn
+	send         chan []byte
+	mu           sync.RWMutex
+	comparePairs map[string]struct{}
 }
 
 type Hub struct {
@@ -37,8 +40,9 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c := &client{
-		conn: conn,
-		send: make(chan []byte, 32),
+		conn:         conn,
+		send:         make(chan []byte, 32),
+		comparePairs: make(map[string]struct{}),
 	}
 	h.mu.Lock()
 	h.clients[c] = struct{}{}
@@ -56,8 +60,35 @@ func (h *Hub) reader(c *client) {
 		return c.conn.SetReadDeadline(time.Now().Add(70 * time.Second))
 	})
 	for {
-		if _, _, err := c.conn.ReadMessage(); err != nil {
+		_, raw, err := c.conn.ReadMessage()
+		if err != nil {
 			return
+		}
+		h.handleSubscription(c, raw)
+	}
+}
+
+func (h *Hub) handleSubscription(c *client, raw []byte) {
+	var message struct {
+		Action  string   `json:"action"`
+		Channel string   `json:"channel"`
+		Pairs   []string `json:"pairs"`
+	}
+	if err := json.Unmarshal(raw, &message); err != nil || message.Channel != "compare" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, pair := range message.Pairs {
+		pair = strings.ToUpper(strings.TrimSpace(pair))
+		if pair == "" {
+			continue
+		}
+		if message.Action == "subscribe" {
+			c.comparePairs[pair] = struct{}{}
+		}
+		if message.Action == "unsubscribe" {
+			delete(c.comparePairs, pair)
 		}
 	}
 }
@@ -98,6 +129,29 @@ func (h *Hub) Broadcast(event string, data interface{}) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for c := range h.clients {
+		select {
+		case c.send <- payload:
+		default:
+			go h.remove(c)
+		}
+	}
+}
+
+func (h *Hub) BroadcastCompare(event, symbol string, data interface{}) {
+	payload, err := json.Marshal(domain.WSMessage{Event: event, Timestamp: time.Now(), Data: data})
+	if err != nil {
+		return
+	}
+	symbol = strings.ToUpper(symbol)
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for c := range h.clients {
+		c.mu.RLock()
+		_, subscribed := c.comparePairs[symbol]
+		c.mu.RUnlock()
+		if !subscribed {
+			continue
+		}
 		select {
 		case c.send <- payload:
 		default:

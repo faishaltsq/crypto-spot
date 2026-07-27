@@ -2,10 +2,12 @@ import type {
   FeatureSnapshot,
   MarketPairResponse,
   PerformanceSummary,
+  PerformanceReport,
   QualityPairReport,
   QualityStats,
   Signal,
   SignalWithOutcome,
+  CompareResponse,
 } from "@/types/market";
 
 export const API_URL =
@@ -78,6 +80,30 @@ export function getPair(symbol: string): Promise<MarketPairResponse> {
 
 export function getPerformanceSummary(): Promise<PerformanceSummary> {
   return request<PerformanceSummary>("/api/v1/performance/summary");
+}
+
+export function getCompare(params: { pairs: string[]; timeframe: string; lookback: string; marketTier?: number; minimumDataQuality?: number; activeSignalOnly?: boolean }): Promise<CompareResponse> {
+  const query = new URLSearchParams({ pairs: params.pairs.join(','), timeframe: params.timeframe, lookback: params.lookback });
+  if (params.marketTier) query.set('marketTier', String(params.marketTier));
+  if (params.minimumDataQuality !== undefined) query.set('minimumDataQuality', String(params.minimumDataQuality));
+  if (params.activeSignalOnly) query.set('activeSignalOnly', 'true');
+  return request<CompareResponse>(`/api/v1/compare?${query.toString()}`);
+}
+
+export interface ActivePair { Symbol: string; Rank: number; Tier: number; }
+export function getActivePairs(): Promise<ActivePair[]> { return request<ActivePair[]>('/api/v1/market/universe/'); }
+
+export interface PerformanceFilterParams {
+  dateFrom?: string; dateTo?: string; pair?: string; tier?: string; timeframe?: string;
+  signalStatus?: string; scoreBucket?: string; marketRegime?: string; ruleVersion?: string;
+  modelVersion?: string; aiDecision?: string; notional?: string;
+}
+
+export function getPerformance(params: PerformanceFilterParams = {}): Promise<PerformanceReport> {
+  const query = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => { if (value) query.set(key, value); });
+  const suffix = query.size ? `?${query}` : "";
+  return request<PerformanceReport>(`/api/v1/performance${suffix}`);
 }
 
 export function getQualityPairs(): Promise<QualityPairReport[]> {

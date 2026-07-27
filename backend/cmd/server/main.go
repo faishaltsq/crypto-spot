@@ -41,6 +41,7 @@ func main() {
 
 	repo := mustConnectDatabase(ctx, cfg.DatabaseURL)
 	defer repo.Close()
+	applyStoredSettings(ctx, repo, &cfg)
 
 	var cache *storage.Cache
 	cacheCandidate := storage.NewCache(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
@@ -79,7 +80,6 @@ func main() {
 	qualityRepo := quality.NewRepository(repo.Pool())
 
 	signalEngine := signals.New(cfg.SignalMinScore, cfg.SignalPairCooldown, aiClient, qualitySvc, qualityMetrics)
-
 	// Market Data Recorder
 	recorderCfg := recorder.Config{
 		Enabled:         cfg.MarketRecorderEnabled,
@@ -229,6 +229,9 @@ func scannerLoop(
 			}
 		}
 		hub.Broadcast("scanner.snapshot", computed)
+		for _, feature := range computed {
+			hub.BroadcastCompare("compare.snapshot", feature.Symbol, feature)
+		}
 
 		// Run data quality evaluation on all snapshots
 		qualityReports := qualitySvc.EvaluateAll(snapshots)
@@ -331,4 +334,93 @@ func mustConnectDatabase(ctx context.Context, databaseURL string) *storage.Repos
 	}
 	log.Fatalf("database unavailable: %v", lastErr)
 	return nil
+}
+
+func applyStoredSettings(ctx context.Context, repo *storage.Repository, cfg *config.Config) {
+	values, err := repo.ListSystemSettingValues(ctx)
+	if err != nil {
+		log.Printf("load system settings failed, using environment configuration: %v", err)
+		return
+	}
+	for key, value := range values {
+		number, ok := value.(float64)
+		switch key {
+		case "market_pair_limit":
+			if ok {
+				cfg.MarketPairLimit = int(number)
+			}
+		case "tier_a_limit":
+			if ok {
+				cfg.MarketTierALimit = int(number)
+			}
+		case "tier_b_limit":
+			if ok {
+				cfg.MarketTierBLimit = int(number)
+			}
+		case "tier_c_limit":
+			if ok {
+				cfg.MarketTierCLimit = int(number)
+			}
+		case "universe_refresh_interval":
+			if ok {
+				cfg.PairUniverseRefreshMin = time.Duration(int(number)) * time.Minute
+			}
+		case "signal_setup_score":
+			if ok {
+				cfg.SignalSetupScore = number
+			}
+		case "signal_confirm_score":
+			if ok {
+				cfg.SignalConfirmScore = number
+			}
+		case "minimum_rule_score":
+			if ok {
+				cfg.SignalMinRuleScore = number
+			}
+		case "minimum_model_probability":
+			if ok {
+				cfg.SignalMinModelProb = number
+			}
+		case "minimum_data_quality":
+			if ok {
+				cfg.SignalMinDataQuality = number
+			}
+		case "maximum_spoof_score":
+			if ok {
+				cfg.SignalMaxSpoofScore = number
+			}
+		case "global_active_signal_limit":
+			if ok {
+				cfg.SignalMaxActiveGlobal = int(number)
+			}
+		case "pair_active_signal_limit":
+			if ok {
+				cfg.SignalMaxActivePerPair = int(number)
+			}
+		case "cluster_active_signal_limit":
+			if ok {
+				cfg.SignalMaxActiveCluster = int(number)
+			}
+		case "pair_cooldown_minutes":
+			if ok {
+				cfg.SignalPairCooldown = time.Duration(int(number)) * time.Minute
+			}
+		case "notification_rate_limit":
+			if ok {
+				cfg.SignalMaxNotifPerHour = int(number)
+			}
+		case "paper_simulation_notionals":
+			if items, ok := value.([]interface{}); ok {
+				notionals := make([]float64, 0, len(items))
+				for _, item := range items {
+					if n, ok := item.(float64); ok && n > 0 {
+						notionals = append(notionals, n)
+					}
+				}
+				if len(notionals) > 0 {
+					cfg.PaperNotionals = notionals
+				}
+			}
+		}
+	}
 }

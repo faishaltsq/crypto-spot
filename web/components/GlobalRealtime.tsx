@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useRealtime } from '@/hooks/use-realtime';
 import { useMarketStore } from '@/stores/market';
 
@@ -8,11 +8,31 @@ export function GlobalRealtime() {
   const updatePair = useMarketStore(state => state.updatePair);
   const updateSignal = useMarketStore(state => state.updateSignal);
 
+  const socketRef = useRef<WebSocket | null>(null);
+  const comparePairsRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    const handleSubscription = (event: Event) => {
+      const detail = (event as CustomEvent<{ action: 'subscribe' | 'unsubscribe'; pairs: string[] }>).detail;
+      if (!detail) return;
+      for (const pair of detail.pairs) {
+        if (detail.action === 'subscribe') comparePairsRef.current.add(pair);
+        else comparePairsRef.current.delete(pair);
+      }
+      if (socketRef.current?.readyState === WebSocket.OPEN) socketRef.current.send(JSON.stringify({ channel: 'compare', ...detail }));
+    };
+    window.addEventListener('compare-subscription', handleSubscription);
+    return () => window.removeEventListener('compare-subscription', handleSubscription);
+  }, []);
+
   useRealtime({
     onMessage: (message) => {
       switch (message.event) {
         case 'scanner.snapshot':
           updatePair(message.data as any);
+          break;
+        case 'compare.snapshot':
+          window.dispatchEvent(new CustomEvent('compare-update', { detail: message.data }));
           break;
         case 'signal.new':
           // Play sound on new signal
@@ -24,7 +44,11 @@ export function GlobalRealtime() {
       }
     },
     onStatusChange: (connected) => {
-      // Could dispatch to a connection status store
+      if (!connected) socketRef.current = null;
+    },
+    onSocketChange: (socket) => {
+      socketRef.current = socket;
+      if (socket && comparePairsRef.current.size > 0) socket.send(JSON.stringify({ channel: 'compare', action: 'subscribe', pairs: [...comparePairsRef.current] }));
     }
   });
 

@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/example/crypto-spot-signal/internal/domain"
 	"github.com/example/crypto-spot-signal/internal/market"
 )
 
@@ -29,7 +30,7 @@ func TestQualityRules(t *testing.T) {
 			Symbol:           "BTC_USDT",
 			LastPrice:        50000,
 			LastMarketUpdate: now.Add(-1 * time.Second),
-			Book: market.BookMetrics{
+			Book: domain.BookMetrics{
 				Synced:        true,
 				BestBid:       49990,
 				BestAsk:       50010,
@@ -39,15 +40,15 @@ func TestQualityRules(t *testing.T) {
 				AskDepthQuote: 100000,
 				UpdatedAt:     now.Add(-1 * time.Second),
 			},
-			Trades: []market.Trade{
+			Trades: []domain.Trade{
 				{Timestamp: now.Add(-2 * time.Second)},
 				{Timestamp: now.Add(-1 * time.Second)},
 				{Timestamp: now},
 			},
-			Candles: map[string][]market.Candle{
-				"1m": make([]market.Candle, 20),
-				"5m": make([]market.Candle, 20),
-				"15m": make([]market.Candle, 20),
+			Candles: map[string][]domain.Candle{
+				"1m": make([]domain.Candle, 20),
+				"5m": make([]domain.Candle, 20),
+				"15m": make([]domain.Candle, 20),
 			},
 		}
 		// Set timestamps manually to avoid zero-time checks failing
@@ -69,7 +70,7 @@ func TestQualityRules(t *testing.T) {
 	t.Run("Unsynced Orderbook", func(t *testing.T) {
 		snapshot := market.PairSnapshot{
 			Symbol: "BTC_USDT",
-			Book: market.BookMetrics{
+			Book: domain.BookMetrics{
 				Synced: false,
 			},
 		}

@@ -12,3 +12,4 @@ coverage/
 test-results/
 
 *.tsbuildinfo
+.agent-locks/
