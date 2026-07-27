@@ -59,7 +59,7 @@ func main() {
 		MaxSpreadBPS:  cfg.MaxSpreadBPS,
 		MinDepthQuote: cfg.MinDepthQuote,
 	})
-	aiClient := ai.New(cfg.AIEnabled, cfg.AIServiceURL, cfg.AITimeout)
+	aiClient := ai.New(cfg.AIEnabled, cfg.AIServiceURL, cfg.AITimeout, cfg.SignalMinScore)
 
 	// Data quality gate
 	qualityCfg := quality.QualityConfig{
@@ -103,12 +103,12 @@ func main() {
 	// Universe service
 	universeRepo := universe.NewRepository(repo.Pool())
 	universeService := universe.NewService(cfg, universeRepo)
-	
+
 	// Initial universe load
 	if err := universeService.Refresh(ctx); err != nil {
 		log.Printf("initial universe refresh failed: %v", err)
 	}
-	
+
 	// Ensure store has the initial pairs
 	for _, p := range universeService.ActivePairs() {
 		marketStore.EnsurePair(p.Symbol, p.Tier)
@@ -251,10 +251,17 @@ func scannerLoop(
 				log.Printf("save signal %s failed: %v", signal.ID, err)
 				continue
 			}
-			if signal.Status == "CONFIRMED" {
-			if err := simulator.SimulateEntry(ctx, signal); err != nil {
-				log.Printf("simulate entry %s failed: %v", signal.ID, err)
+			signalID := signal.ID
+			if err := repo.SaveAIReview(ctx, domain.AIReviewRecord{
+				SignalID: &signalID, Pair: signal.Symbol, Timeframe: signal.PrimaryTimeframe,
+				Review: signal.AI, ReviewedAt: signal.CreatedAt,
+			}); err != nil {
+				log.Printf("save AI review %s failed: %v", signal.ID, err)
 			}
+			if signal.Status == "CONFIRMED" {
+				if err := simulator.SimulateEntry(ctx, signal); err != nil {
+					log.Printf("simulate entry %s failed: %v", signal.ID, err)
+				}
 			}
 			hub.Broadcast("signal.created", signal)
 		}

@@ -102,7 +102,7 @@ Default menggunakan deterministic review:
 
 ```env
 AI_ENABLED=false
-AI_PROVIDER=none
+AI_PROVIDER=deterministic
 ```
 
 DeepSeek:
@@ -110,7 +110,7 @@ DeepSeek:
 ```env
 AI_ENABLED=true
 AI_PROVIDER=deepseek
-AI_API_KEY=isi_api_key
+DEEPSEEK_API_KEY=
 AI_MODEL=isi_model_yang_tersedia_di_akun
 ```
 
@@ -119,7 +119,7 @@ Grok:
 ```env
 AI_ENABLED=true
 AI_PROVIDER=grok
-AI_API_KEY=isi_api_key
+GROK_API_KEY=
 AI_MODEL=isi_model_yang_tersedia_di_akun
 ```
 

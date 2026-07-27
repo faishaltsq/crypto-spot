@@ -562,7 +562,7 @@ function AIReviewTab({ data }: { data: any }) {
         <MetricCard label="Provider" value={ai.provider || 'Deterministic'} />
         <MetricCard label="Model" value={ai.model || 'rule-review-v1'} />
         <MetricCard label="Decision" value={ai.decision || 'WAIT'} valueClass={ai.decision === 'CONFIRM' ? 'positiveText' : ai.decision === 'REJECT' ? 'negativeText' : ''} />
-        <MetricCard label="Confidence" value={ai.confidence ? (ai.confidence * 100).toFixed(0) + '%' : 'N/A'} />
+        <MetricCard label="AI review confidence" value={ai.confidence ? (ai.confidence * 100).toFixed(0) + '%' : 'N/A'} />
       </div>
       
       {ai.summary && (
@@ -573,7 +573,7 @@ function AIReviewTab({ data }: { data: any }) {
       )}
       
       <div className="diagnostic-grid">
-         {ai.reasonCodes?.map((code: string, i: number) => <MetricCard key={i} label="Reason Code" value={code} />)}
+         {ai.supporting_reason_codes?.map((code: string, i: number) => <MetricCard key={i} label="Supporting reason" value={code} />)}
       </div>
     </div>
   );
@@ -593,17 +593,16 @@ function SignalSetupTab({ signal }: { signal: Signal }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div className="diagnostic-grid">
         <div className="metric-box" style={{ gridColumn: 'span 2' }}>
-           <div className="metric-label">AI Decision & Confidence</div>
+            <div className="metric-label">AI Decision & AI review confidence</div>
            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
               <span className={`metric-value ${signal.ai?.decision === 'CONFIRM' ? 'positiveText' : signal.ai?.decision === 'REJECT' ? 'negativeText' : ''}`}>
                 {signal.ai?.decision || 'N/A'}
               </span>
               <span style={{ fontSize: '12px', color: 'var(--muted)' }}>
-                {(signal.ai?.confidence ? signal.ai.confidence * 100 : 0).toFixed(0)}% Confidence
+                {(signal.ai?.confidence ? signal.ai.confidence * 100 : 0).toFixed(0)}% AI review confidence
               </span>
            </div>
         </div>
-        <MetricCard title="System-assessed risk level" label="Risk Level" value={signal.ai?.riskLevel || 'N/A'} valueClass={signal.ai?.riskLevel === 'HIGH' ? 'negativeText' : signal.ai?.riskLevel === 'LOW' ? 'positiveText' : ''} />
         <MetricCard title="Model used for this review" label="AI Provider" value={signal.ai?.provider || 'Rule Engine'} />
       </div>
 

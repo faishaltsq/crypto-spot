@@ -8,7 +8,7 @@ from app.schemas import ReviewRequest, ReviewResponse
 class DeepSeekProvider(Provider):
     def __init__(self, api_key: str, model: str, timeout: int) -> None:
         if not api_key:
-            raise ValueError("AI_API_KEY is required for DeepSeek")
+            raise ValueError("AI_PROVIDER_MISCONFIGURED")
         if not model:
             raise ValueError("AI_MODEL is required for DeepSeek")
         self.api_key = api_key
@@ -42,6 +42,4 @@ class DeepSeekProvider(Provider):
             response.raise_for_status()
             parsed = parse_chat_content(response.json())
 
-        parsed["provider"] = "deepseek"
-        parsed["model"] = self.model
-        return ReviewResponse.model_validate(parsed)
+        return parsed

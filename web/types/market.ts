@@ -39,14 +39,20 @@ export interface FeatureSnapshot {
 }
 
 export interface AIReview {
-  decision: "CONFIRM" | "REJECT" | "WAIT";
+  decision: "CONFIRM" | "REJECT" | "WAIT" | "UNAVAILABLE";
   confidence: number;
-  riskLevel: "LOW" | "MEDIUM" | "HIGH";
-  reasonCodes: string[];
-  riskFlags: string[];
+  supporting_reason_codes: string[];
+  contradicting_reason_codes: string[];
+  risk_flags: string[];
   summary: string;
   provider: string;
   model: string;
+  latency_ms: number;
+  fallback: boolean;
+  fallback_reason?: string;
+  provider_error_code?: string;
+  prompt_version: string;
+  schema_version: string;
 }
 
 export interface Signal {
@@ -153,6 +159,48 @@ export interface PerformanceSummary {
   averageReturn4h: number;
   averageMfe: number;
   averageMae: number;
+}
+
+export interface PerformanceMetric {
+  name: string;
+  definition: string;
+  unit: "count" | "decimal" | "ratio" | "seconds" | "USDT";
+  value: number;
+  sampleCount: number;
+}
+
+export interface PerformanceBreakdown {
+  dimension: string;
+  value: string;
+  sampleCount: number;
+  averageGrossReturn: number;
+  averageNetReturn: number;
+  winRate: number;
+}
+
+export interface PerformanceReport {
+  metrics: PerformanceMetric[];
+  breakdowns: PerformanceBreakdown[];
+  returnHorizons: Array<{
+    horizon: string;
+    meanGrossReturn: number;
+    medianGrossReturn: number;
+    meanNetReturn: number;
+    medianNetReturn: number;
+    positiveRate: number;
+    sampleCount: number;
+    confidenceInterval?: [number, number];
+  }>;
+  edgeScore: { score: number; components: Array<{ name: string; weight: number; score: number; contribution: number }> };
+  warnings: string[];
+  statusCounts: Record<string, number>;
+  reliabilityStatus: "INSUFFICIENT" | "PRELIMINARY" | "MODERATE" | "STRONGER_EVIDENCE";
+  reliabilityDefinition: string;
+  calculationTimestamp: string;
+  filters: Record<string, string>;
+  dateRange: { from?: string; to?: string };
+  charts: { cumulativeNetReturn: number[]; cumulativeGrossReturn: number[]; drawdown: number[] };
+  unit: string;
 }
 
 // --- Quality Gate Types ---

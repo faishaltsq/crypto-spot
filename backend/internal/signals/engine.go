@@ -40,10 +40,10 @@ const (
 
 // burstGuard prevents signal bursts across ALL pairs.
 type burstGuard struct {
-	mu            sync.Mutex
-	lastSignalAt  time.Time
-	lastMinuteAt  time.Time
-	countThisMin  int
+	mu           sync.Mutex
+	lastSignalAt time.Time
+	lastMinuteAt time.Time
+	countThisMin int
 }
 
 func (b *burstGuard) allow(maxPerMin int) bool {
@@ -68,17 +68,17 @@ func (b *burstGuard) allow(maxPerMin int) bool {
 }
 
 type Engine struct {
-	minScore       float64
-	confirmScore   float64
-	cooldown       time.Duration
-	maxPerMin      int
-	ai             *ai.Client
-	qualitySvc     *quality.Service
-	metrics        *quality.Metrics
-	mu             sync.Mutex
-	last           map[string]time.Time // per-pair cooldown
-	burst          burstGuard
-	activeCount    int
+	minScore     float64
+	confirmScore float64
+	cooldown     time.Duration
+	maxPerMin    int
+	ai           *ai.Client
+	qualitySvc   *quality.Service
+	metrics      *quality.Metrics
+	mu           sync.Mutex
+	last         map[string]time.Time // per-pair cooldown
+	burst        burstGuard
+	activeCount  int
 }
 
 func New(minScore float64, cooldown time.Duration, aiClient *ai.Client, qualitySvc *quality.Service, metrics *quality.Metrics) *Engine {
@@ -164,31 +164,17 @@ func (e *Engine) Evaluate(ctx context.Context, feature domain.FeatureSnapshot) (
 		return nil, false
 	}
 
-	// ── GATE 8: AI review ────────────────────────────────────────────────────
+	// ── GATE 8: AI review metadata ───────────────────────────────────────────
+	// Reviewer output cannot reject, promote, or otherwise alter rule-owned lifecycle.
 	review := e.ai.Review(ctx, feature)
-	if review.Decision == "REJECT" {
-		if e.metrics != nil {
-			e.metrics.RecordSignalDecision(false)
-		}
-		log.Printf("[signal] AI_REJECTED %s: AI returned REJECT (confidence=%.2f)", feature.Symbol, review.Confidence)
-		return nil, false
-	}
 
 	// ── DETERMINE SIGNAL TYPE ─────────────────────────────────────────────────
-	// BUY_CONFIRMED requires ALL of:
-	//   1. rule_score >= MinRuleScoreForConfirmed (80)
-	//   2. AI decision == CONFIRM
-	//   3. spoof_score <= MaxSpoofScoreForConfirmed (60)
-	//   4. trend_alignment >= MinTrendAlignmentForConfirmed (0.20)
-	//   5. orderbook synced (already ensured by data quality above)
+	// BUY_CONFIRMED requires rule-owned conditions only. AI is not a signal gate.
 	signalType := "BUY_SETUP"
 	confirmBlockedReasons := make([]string, 0)
 
 	if feature.RuleScore < e.confirmScore {
 		confirmBlockedReasons = append(confirmBlockedReasons, domain.ReasonInsufficientRuleScore)
-	}
-	if review.Decision != "CONFIRM" {
-		confirmBlockedReasons = append(confirmBlockedReasons, domain.ReasonMissingAIReview)
 	}
 	if feature.SpoofScore > MaxSpoofScoreForConfirmed {
 		confirmBlockedReasons = append(confirmBlockedReasons, domain.ReasonHighSpoofRisk)
@@ -228,8 +214,8 @@ func (e *Engine) Evaluate(ctx context.Context, feature domain.FeatureSnapshot) (
 		RegimePenalty:     0,
 		SpoofPenalty:      0,
 		FinalThreshold:    e.minScore,
-		SignalScore:        feature.RuleScore,
-		TrendAlignmentPct:  feature.TrendAlignment,
+		SignalScore:       feature.RuleScore,
+		TrendAlignmentPct: feature.TrendAlignment,
 		DataQualityScore:  feature.DataQualityScore,
 		DataQualityStatus: feature.DataQualityStatus,
 		SpoofScore:        feature.SpoofScore,

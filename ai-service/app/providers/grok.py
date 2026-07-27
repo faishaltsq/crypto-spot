@@ -8,7 +8,7 @@ from app.schemas import REVIEW_JSON_SCHEMA, ReviewRequest, ReviewResponse
 class GrokProvider(Provider):
     def __init__(self, api_key: str, model: str, timeout: int) -> None:
         if not api_key:
-            raise ValueError("AI_API_KEY is required for Grok")
+            raise ValueError("AI_PROVIDER_MISCONFIGURED")
         if not model:
             raise ValueError("AI_MODEL is required for Grok")
         self.api_key = api_key
@@ -42,6 +42,4 @@ class GrokProvider(Provider):
             response.raise_for_status()
             parsed = parse_chat_content(response.json())
 
-        parsed["provider"] = "grok"
-        parsed["model"] = self.model
-        return ReviewResponse.model_validate(parsed)
+        return parsed

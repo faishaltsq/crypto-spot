@@ -26,7 +26,7 @@ async function showSignalNotification(signal: Signal, minimumScore: number): Pro
   if (signal.ruleScore < minimumScore) return;
   if (!notificationSupported() || Notification.permission !== "granted") return;
   const title = `${signal.symbol} ${signal.type}`;
-  const body = `Score ${signal.ruleScore.toFixed(1)} | ${signal.primaryTimeframe} | Risk ${signal.ai.riskLevel}`;
+  const body = `Score ${signal.ruleScore.toFixed(1)} | ${signal.primaryTimeframe} | AI review ${signal.ai.decision}`;
 
   if ("serviceWorker" in navigator) {
     const registration = await navigator.serviceWorker.ready;

@@ -6,13 +6,13 @@ import "time"
 
 const (
 	// Supporting evidence
-	ReasonVolumeExpansion  = "VOLUME_EXPANSION"
-	ReasonPositiveCVD      = "POSITIVE_CVD"
-	ReasonNegativeCVD      = "NEGATIVE_CVD"
-	ReasonBidAbsorption    = "BID_ABSORPTION"
-	ReasonAskAbsorption    = "ASK_ABSORPTION"
-	ReasonMultiTFAlignment = "MULTI_TIMEFRAME_ALIGNMENT"
-	ReasonLowSpoofRisk     = "LOW_SPOOF_RISK"
+	ReasonVolumeExpansion   = "VOLUME_EXPANSION"
+	ReasonPositiveCVD       = "POSITIVE_CVD"
+	ReasonNegativeCVD       = "NEGATIVE_CVD"
+	ReasonBidAbsorption     = "BID_ABSORPTION"
+	ReasonAskAbsorption     = "ASK_ABSORPTION"
+	ReasonMultiTFAlignment  = "MULTI_TIMEFRAME_ALIGNMENT"
+	ReasonLowSpoofRisk      = "LOW_SPOOF_RISK"
 	ReasonAdequateLiquidity = "ADEQUATE_LIQUIDITY"
 
 	// Risk / blocking reason codes
@@ -27,22 +27,22 @@ const (
 	ReasonCorrelatedCluster = "CORRELATED_SIGNAL_CLUSTER"
 
 	// Signal gate rejection codes (requested by user)
-	ReasonInsufficientRuleScore  = "INSUFFICIENT_RULE_SCORE"
-	ReasonLowTrendAlignment      = "LOW_TREND_ALIGNMENT"
-	ReasonMissingOrderbook       = "MISSING_ORDERBOOK"
-	ReasonMissingMultiTimeframe  = "MISSING_MULTI_TIMEFRAME"
-	ReasonMissingAIReview        = "MISSING_AI_REVIEW"
-	ReasonStaleMarketData        = "STALE_MARKET_DATA"
-	ReasonLowDataQuality         = "LOW_DATA_QUALITY"
-	ReasonSignalCooldown         = "SIGNAL_COOLDOWN"
-	ReasonCorrelatedSuppressed   = "CORRELATED_SIGNAL_SUPPRESSED"
+	ReasonInsufficientRuleScore = "INSUFFICIENT_RULE_SCORE"
+	ReasonLowTrendAlignment     = "LOW_TREND_ALIGNMENT"
+	ReasonMissingOrderbook      = "MISSING_ORDERBOOK"
+	ReasonMissingMultiTimeframe = "MISSING_MULTI_TIMEFRAME"
+	ReasonMissingAIReview       = "MISSING_AI_REVIEW"
+	ReasonStaleMarketData       = "STALE_MARKET_DATA"
+	ReasonLowDataQuality        = "LOW_DATA_QUALITY"
+	ReasonSignalCooldown        = "SIGNAL_COOLDOWN"
+	ReasonCorrelatedSuppressed  = "CORRELATED_SIGNAL_SUPPRESSED"
 
 	// Data quality penalty reasons
-	ReasonDataNotReady           = "DATA_NOT_READY"
-	ReasonBookNotSynced          = "BOOK_NOT_SYNCED"
-	ReasonLimitedCandleHistory   = "LIMITED_CANDLE_HISTORY"
-	ReasonLowRecentTradeCount    = "LOW_RECENT_TRADE_COUNT"
-	ReasonMissingTimeframes      = "MISSING_TIMEFRAMES"
+	ReasonDataNotReady         = "DATA_NOT_READY"
+	ReasonBookNotSynced        = "BOOK_NOT_SYNCED"
+	ReasonLimitedCandleHistory = "LIMITED_CANDLE_HISTORY"
+	ReasonLowRecentTradeCount  = "LOW_RECENT_TRADE_COUNT"
+	ReasonMissingTimeframes    = "MISSING_TIMEFRAMES"
 )
 
 // --- Core Market Types ---
@@ -102,10 +102,10 @@ type TradeWindow struct {
 type DataQualityStatus string
 
 const (
-	DataQualityValid      DataQualityStatus = "VALID"
-	DataQualityDegraded   DataQualityStatus = "DEGRADED"
-	DataQualityStale      DataQualityStatus = "STALE"
-	DataQualityBlocked    DataQualityStatus = "BLOCKED"
+	DataQualityValid       DataQualityStatus = "VALID"
+	DataQualityDegraded    DataQualityStatus = "DEGRADED"
+	DataQualityStale       DataQualityStatus = "STALE"
+	DataQualityBlocked     DataQualityStatus = "BLOCKED"
 	DataQualityUnavailable DataQualityStatus = "UNAVAILABLE"
 )
 
@@ -143,7 +143,7 @@ const (
 type FeatureSnapshot struct {
 	Symbol             string             `json:"symbol"`
 	Tier               int                `json:"tier"`
-	DataSource         DataSource         `json:"dataSource"`           // GATE or MOCK
+	DataSource         DataSource         `json:"dataSource"` // GATE or MOCK
 	Price              float64            `json:"price"`
 	Change24hPercent   float64            `json:"change24hPercent"`
 	QuoteVolume24h     float64            `json:"quoteVolume24h"`
@@ -170,8 +170,8 @@ type FeatureSnapshot struct {
 	Status             string             `json:"status"`
 	Reasons            []string           `json:"reasons"`
 	RiskFlags          []string           `json:"riskFlags"`
-	MissingFeatures    []string           `json:"missingFeatures"`     // features not yet available
-	BlockedReasons     []string           `json:"blockedReasons"`      // reasons this pair is blocked from signaling
+	MissingFeatures    []string           `json:"missingFeatures"` // features not yet available
+	BlockedReasons     []string           `json:"blockedReasons"`  // reasons this pair is blocked from signaling
 	CalculatedAt       time.Time          `json:"calculatedAt"`
 }
 
@@ -181,14 +181,29 @@ func (f FeatureSnapshot) IsDataReady() bool {
 }
 
 type AIReview struct {
-	Decision    string   `json:"decision"`
-	Confidence  float64  `json:"confidence"`
-	RiskLevel   string   `json:"riskLevel"`
-	ReasonCodes []string `json:"reasonCodes"`
-	RiskFlags   []string `json:"riskFlags"`
-	Summary     string   `json:"summary"`
-	Provider    string   `json:"provider"`
-	Model       string   `json:"model"`
+	Decision                 string   `json:"decision"`
+	Confidence               float64  `json:"confidence"`
+	Summary                  string   `json:"summary"`
+	SupportingReasonCodes    []string `json:"supporting_reason_codes"`
+	ContradictingReasonCodes []string `json:"contradicting_reason_codes"`
+	RiskFlags                []string `json:"risk_flags"`
+	Provider                 string   `json:"provider"`
+	Model                    string   `json:"model"`
+	LatencyMS                int      `json:"latency_ms"`
+	Fallback                 bool     `json:"fallback"`
+	FallbackReason           string   `json:"fallback_reason,omitempty"`
+	ProviderErrorCode        string   `json:"provider_error_code,omitempty"`
+	PromptVersion            string   `json:"prompt_version"`
+	SchemaVersion            string   `json:"schema_version"`
+}
+
+// AIReviewRecord is audit metadata only. It never drives signal state.
+type AIReviewRecord struct {
+	SignalID   *string
+	Pair       string
+	Timeframe  string
+	Review     AIReview
+	ReviewedAt time.Time
 }
 
 // --- Signal Versioning ---
@@ -235,61 +250,61 @@ type SignalEvidence struct {
 
 // ThresholdDetail records the dynamic threshold calculation for a signal.
 type ThresholdDetail struct {
-	BaseThreshold      float64 `json:"baseThreshold"`
-	ConfirmThreshold   float64 `json:"confirmThreshold"`
-	RegimePenalty      float64 `json:"regimePenalty"`
-	SpoofPenalty       float64 `json:"spoofPenalty"`
-	FinalThreshold     float64 `json:"finalThreshold"`
-	SignalScore        float64 `json:"signalScore"`
+	BaseThreshold    float64 `json:"baseThreshold"`
+	ConfirmThreshold float64 `json:"confirmThreshold"`
+	RegimePenalty    float64 `json:"regimePenalty"`
+	SpoofPenalty     float64 `json:"spoofPenalty"`
+	FinalThreshold   float64 `json:"finalThreshold"`
+	SignalScore      float64 `json:"signalScore"`
 	// New detailed fields for auditability
-	TrendAlignmentPct  float64 `json:"trendAlignmentPct"`
-	DataQualityScore   float64 `json:"dataQualityScoreAtSignal"`
-	DataQualityStatus  DataQualityStatus `json:"dataQualityStatusAtSignal"`
-	SpoofScore         float64 `json:"spoofScoreAtSignal"`
-	SpoofStatus        SpoofStatus `json:"spoofStatusAtSignal"`
+	TrendAlignmentPct float64           `json:"trendAlignmentPct"`
+	DataQualityScore  float64           `json:"dataQualityScoreAtSignal"`
+	DataQualityStatus DataQualityStatus `json:"dataQualityStatusAtSignal"`
+	SpoofScore        float64           `json:"spoofScoreAtSignal"`
+	SpoofStatus       SpoofStatus       `json:"spoofStatusAtSignal"`
 }
 
 // --- Signal ---
 
 type Signal struct {
-	ID               string            `json:"id"`
-	Symbol           string            `json:"symbol"`
-	Type             string            `json:"type"`
-	Status           string            `json:"status"`
-	PrimaryTimeframe string            `json:"primaryTimeframe"`
-	EntryPrice       float64           `json:"entryPrice"`
-	Invalidation     float64           `json:"invalidationPrice"`
-	Target1          float64           `json:"targetPrice1"`
-	Target2          float64           `json:"targetPrice2"`
-	RuleScore        float64           `json:"ruleScore"`
-	AI               AIReview          `json:"ai"`
-	Reasons          []string          `json:"reasons"`
-	RiskFlags        []string          `json:"riskFlags"`
-	MissingFeatures  []string          `json:"missingFeatures"`
-	BlockedReasons   []string          `json:"blockedReasons"`
-	Features         FeatureSnapshot   `json:"features"`
-	Version          SignalVersion     `json:"version"`
-	Evidence         SignalEvidence    `json:"evidence"`
-	Threshold        ThresholdDetail   `json:"threshold"`
-	DataQualityScore float64           `json:"dataQualityScore"`
+	ID                string            `json:"id"`
+	Symbol            string            `json:"symbol"`
+	Type              string            `json:"type"`
+	Status            string            `json:"status"`
+	PrimaryTimeframe  string            `json:"primaryTimeframe"`
+	EntryPrice        float64           `json:"entryPrice"`
+	Invalidation      float64           `json:"invalidationPrice"`
+	Target1           float64           `json:"targetPrice1"`
+	Target2           float64           `json:"targetPrice2"`
+	RuleScore         float64           `json:"ruleScore"`
+	AI                AIReview          `json:"ai"`
+	Reasons           []string          `json:"reasons"`
+	RiskFlags         []string          `json:"riskFlags"`
+	MissingFeatures   []string          `json:"missingFeatures"`
+	BlockedReasons    []string          `json:"blockedReasons"`
+	Features          FeatureSnapshot   `json:"features"`
+	Version           SignalVersion     `json:"version"`
+	Evidence          SignalEvidence    `json:"evidence"`
+	Threshold         ThresholdDetail   `json:"threshold"`
+	DataQualityScore  float64           `json:"dataQualityScore"`
 	DataQualityStatus DataQualityStatus `json:"dataQualityStatus"`
-	DataSource       DataSource        `json:"dataSource"`
-	CreatedAt        time.Time         `json:"createdAt"`
-	ExpiresAt        time.Time         `json:"expiresAt"`
-	Simulations      []PaperSimulation `json:"simulations,omitempty"`
+	DataSource        DataSource        `json:"dataSource"`
+	CreatedAt         time.Time         `json:"createdAt"`
+	ExpiresAt         time.Time         `json:"expiresAt"`
+	Simulations       []PaperSimulation `json:"simulations,omitempty"`
 }
 
 type PaperSimulation struct {
-	Notional          float64  `json:"notional"`
-	EntryFee          *float64 `json:"entryFee,omitempty"`
-	ExitFee           *float64 `json:"exitFee,omitempty"`
-	EntrySlippage     *float64 `json:"entrySlippage,omitempty"`
-	ExitSlippage      *float64 `json:"exitSlippage,omitempty"`
-	EntrySlippageBPS  *float64 `json:"entrySlippageBps,omitempty"`
-	ExitSlippageBPS   *float64 `json:"exitSlippageBps,omitempty"`
-	GrossReturn       *float64 `json:"grossReturn,omitempty"`
-	NetReturn         *float64 `json:"netReturn,omitempty"`
-	SimulationStatus  string   `json:"simulationStatus"`
+	Notional         float64  `json:"notional"`
+	EntryFee         *float64 `json:"entryFee,omitempty"`
+	ExitFee          *float64 `json:"exitFee,omitempty"`
+	EntrySlippage    *float64 `json:"entrySlippage,omitempty"`
+	ExitSlippage     *float64 `json:"exitSlippage,omitempty"`
+	EntrySlippageBPS *float64 `json:"entrySlippageBps,omitempty"`
+	ExitSlippageBPS  *float64 `json:"exitSlippageBps,omitempty"`
+	GrossReturn      *float64 `json:"grossReturn,omitempty"`
+	NetReturn        *float64 `json:"netReturn,omitempty"`
+	SimulationStatus string   `json:"simulationStatus"`
 }
 
 type WSMessage struct {

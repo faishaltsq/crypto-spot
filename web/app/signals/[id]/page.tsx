@@ -97,8 +97,7 @@ export default function SignalDetailPage() {
             <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>AI Review</h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 8 }}>
               <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Decision</div><div style={{ fontWeight: 600, color: signal.ai.decision === 'CONFIRM' ? 'var(--positive)' : signal.ai.decision === 'REJECT' ? 'var(--negative)' : '' }}>{signal.ai.decision}</div></div>
-              <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Confidence</div><div style={{ fontWeight: 600 }}>{(signal.ai.confidence * 100).toFixed(0)}%</div></div>
-              <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Risk Level</div><div style={{ fontWeight: 600 }}>{signal.ai.riskLevel}</div></div>
+              <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>AI review confidence</div><div style={{ fontWeight: 600 }}>{(signal.ai.confidence * 100).toFixed(0)}%</div></div>
               <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Provider</div><div style={{ fontWeight: 600 }}>{signal.ai.provider}</div></div>
             </div>
             {signal.ai.summary && (
@@ -106,9 +105,9 @@ export default function SignalDetailPage() {
                 {signal.ai.summary}
               </div>
             )}
-            {signal.ai.reasonCodes?.length > 0 && (
+            {signal.ai.supporting_reason_codes?.length > 0 && (
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {signal.ai.reasonCodes.map((c, i) => <span key={i} style={{ background: 'rgba(59,130,246,0.1)', color: '#60a5fa', padding: '2px 8px', borderRadius: 4, fontSize: 11 }}>{c}</span>)}
+                {signal.ai.supporting_reason_codes.map((c, i) => <span key={i} style={{ background: 'rgba(59,130,246,0.1)', color: '#60a5fa', padding: '2px 8px', borderRadius: 4, fontSize: 11 }}>{c}</span>)}
               </div>
             )}
           </div>

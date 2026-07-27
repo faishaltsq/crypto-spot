@@ -8,34 +8,20 @@ class DeterministicProvider(Provider):
 
     async def review(self, request: ReviewRequest) -> ReviewResponse:
         features = request.features
-        score = float(features.get("ruleScore", 0) or 0)
-        quality = float(features.get("dataQualityScore", 0) or 0)
-        spoof = float(features.get("spoofScore", 100) or 100)
-        reasons = list(features.get("reasons", []) or [])
-        flags = list(features.get("riskFlags", []) or [])
-
         decision = "WAIT"
-        risk = "HIGH"
-        if quality >= 70 and score >= 80 and spoof < 50:
-            decision = "CONFIRM"
-            risk = "MEDIUM"
-        elif quality < 60 or spoof >= 70:
+        if features.data_quality < 60 or features.spoof_risk >= 70:
             decision = "REJECT"
-            risk = "HIGH"
-        elif score >= 70:
-            risk = "MEDIUM"
-
+        elif features.data_quality >= 70 and features.rule_score >= 80 and features.spoof_risk < 50:
+            decision = "CONFIRM"
         return ReviewResponse(
             decision=decision,
-            confidence=max(0.0, min(score / 100, 1.0)),
-            riskLevel=risk,
-            reasonCodes=reasons[:8],
-            riskFlags=flags[:8],
-            summary=(
-                f"Rule review for {request.symbol}. "
-                f"Score {score:.1f}, data quality {quality:.1f}, "
-                f"and spoof heuristic {spoof:.1f}."
-            ),
+            confidence=max(0.0, min(features.rule_score / 100, 1.0)),
+            summary="Deterministic review of supplied rule and data-quality features.",
+            supporting_reason_codes=features.supporting_evidence,
+            contradicting_reason_codes=features.contradicting_evidence,
+            risk_flags=features.risk_flags,
             provider=self.provider_name,
             model="rule-review-v1",
+            latency_ms=0,
+            fallback=False,
         )
