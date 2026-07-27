@@ -534,19 +534,26 @@ function DataQualityTab({ symbol }: { symbol: string }) {
   if (loading) return <div style={{ padding: '16px' }}>Loading...</div>;
   if (!report) return <div style={{ padding: '16px' }}>Data unavailable.</div>;
 
+  const displayNumber = (value: unknown, decimals?: number) => typeof value === 'number' && Number.isFinite(value) ? decimals === undefined ? String(value) : value.toFixed(decimals) : 'Unavailable';
+  const score = report.quality_score ?? report.score;
+  const status = report.quality_status ?? report.status;
+  const redisLatency = report.redis_latency_ms ?? report.persistence?.redisLatencyMs;
+  const databaseBacklog = report.database_backlog_size ?? report.persistence?.dbBacklogSize;
+  const reasons = report.blocked_reasons ?? report.reasons;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '1rem' }}>
         <h3>Data Quality: {symbol}</h3>
         <div className="diagnostic-grid">
-            <MetricCard label="Score" value={report.score.toFixed(1)} />
-            <MetricCard label="Status" value={report.status} />
-            <MetricCard label="Redis Latency" value={`${report.persistence?.redisLatencyMs.toFixed(1)}ms`} />
-            <MetricCard label="DB Backlog" value={`${report.persistence?.dbBacklogSize}`} />
+            <MetricCard label="Score" value={displayNumber(score, 1)} />
+            <MetricCard label="Status" value={status ?? 'Unavailable'} />
+            <MetricCard label="Redis Latency" value={redisLatency === undefined || redisLatency === null ? 'Unavailable' : `${displayNumber(redisLatency, 1)}ms`} />
+            <MetricCard label="DB Backlog" value={displayNumber(databaseBacklog)} />
         </div>
         <div>
         <h4>Reasons</h4>
         <ul>
-            {report.reasons && report.reasons.length > 0 ? report.reasons.map((r: string) => <li key={r}>{r}</li>) : <li style={{ color: 'var(--muted)' }}>No issues</li>}
+            {Array.isArray(reasons) && reasons.length > 0 ? reasons.map((r: string, index: number) => <li key={`${r}-${index}`}>{r}</li>) : <li style={{ color: 'var(--muted)' }}>No issues</li>}
         </ul>
         </div>
     </div>

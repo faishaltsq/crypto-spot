@@ -48,3 +48,18 @@ test('compare renders repeated evidence without key warnings', async ({ page }) 
   await expect(page.getByText('HIGH_SPOOF_RISK', { exact: true })).toHaveCount(4);
   expect(duplicateKeyWarnings).toEqual([]);
 });
+
+test('terminal data quality renders missing metrics safely', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.route('**/api/v1/scanner', route => route.fulfill({ json: [] }));
+  await page.route('**/api/v1/signals?*', route => route.fulfill({ json: [] }));
+  await page.route('**/api/v1/terminal/BTC_USDT', route => route.fulfill({ json: {
+    diagnostic: { symbol: 'BTC_USDT', tier: 1, dataSource: 'MOCK', price: 100000, change24hPercent: 0, quoteVolume24h: 0, spreadBps: 0, bidDepthQuote: 0, askDepthQuote: 0, orderbookImbalance: 0, spoofScore: 0, spoofStatus: 'LOW', buyRatio1m: 0, volumeDeltaRatio1m: 0, relativeVolume1m: 0, trendByTimeframe: {}, ema9ByTimeframe: {}, ema20ByTimeframe: {}, trendAlignment: 0, marketRegime: 'neutral', volatilityPercentile: 0, correlationState: 'neutral', liquidityScore: 0, volumeScore: 0, orderFlowScore: 0, trendScore: 0, dataQualityScore: 0, dataQualityStatus: 'UNAVAILABLE', ruleScore: 0, status: 'UNAVAILABLE', reasons: [], riskFlags: [], missingFeatures: [], blockedReasons: [], calculatedAt: '2026-07-27T10:00:00Z' }, candles: {}, orderbook: {}, topBids: [], topAsks: [], trades: [], signals: [],
+  } }));
+  await page.route('**/api/v1/quality/pairs/BTC_USDT', route => route.fulfill({ json: { symbol: 'BTC_USDT', quality_status: 'UNAVAILABLE' } }));
+  await page.goto('/terminal/BTC_USDT');
+  await page.getByRole('button', { name: 'Data Quality' }).click();
+  await expect(page.getByText('Unavailable', { exact: true }).first()).toBeVisible();
+  expect(errors).toEqual([]);
+});

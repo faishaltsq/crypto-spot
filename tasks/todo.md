@@ -1,5 +1,17 @@
 # Dynamic Signal Threshold Tasks
 
+## Terminal Data Quality Missing Metrics Fix 2026-07-27
+
+- [x] Render incomplete quality metrics safely
+  - Owner: `opencode-terminal-quality-fix`
+  - Started (UTC): `2026-07-27T14:05:00Z`
+  - Files: `web/components/diagnostics/PairDiagnostic.tsx`, `web/tests/e2e.spec.ts`, `tasks/todo.md`
+  - Verify: `cd web; npx playwright test tests/e2e.spec.ts --project=desktop --grep "terminal data quality"; npm run build`
+  - State: `done`
+  - Completed (UTC): `2026-07-27T14:05:00Z`
+  - Result: terminal Data Quality accepts backend snake_case fields and renders absent numeric values as `Unavailable`.
+  - Verify: focused desktop Playwright regression and `cd web; npm run build` passed.
+
 ## Compare Evidence Key Fix 2026-07-27
 
 - [x] Use unique keys for repeated evidence codes
