@@ -11,7 +11,7 @@ const snapshot = {
     dataQualityScore: 95, dataQualityStatus: 'VALID', activeSignal: true,
     historical: { netReturn: 1.5, winRate: .6, sampleCount: 24, netExpectancy: .4, mfe: 2, mae: -1, insufficientSample: false },
     pricePerformance: [{ time: '2026-07-27T09:00:00Z', value: 0 }, { time: '2026-07-27T10:00:00Z', value: 2 }],
-    supportingEvidence: ['POSITIVE_CVD'], contradictingEvidence: [], freshness: { lastMarketUpdate: '2026-07-27T10:00:00Z', isStale: false, bookSynced: true }, partialMetrics: [],
+    supportingEvidence: ['POSITIVE_CVD', 'HIGH_SPOOF_RISK', 'HIGH_SPOOF_RISK'], contradictingEvidence: [], freshness: { lastMarketUpdate: '2026-07-27T10:00:00Z', isStale: false, bookSynced: true }, partialMetrics: [],
   })),
 };
 
@@ -35,4 +35,16 @@ test('compare fits responsive viewport', async ({ page }, testInfo) => {
   await page.goto('/compare?pairs=BTC_USDT,ETH_USDT&timeframe=15m&lookback=24h');
   await expect(page.getByRole('heading', { name: 'Pair comparison' })).toBeVisible();
   await page.screenshot({ path: `test-results/compare-${testInfo.project.name}.png`, fullPage: true });
+});
+
+test('compare renders repeated evidence without key warnings', async ({ page }) => {
+  const duplicateKeyWarnings: string[] = [];
+  page.on('console', message => {
+    if (message.type() === 'error' && message.text().includes('same key')) duplicateKeyWarnings.push(message.text());
+  });
+  await page.route('**/api/v1/market/universe/', route => route.fulfill({ json: [] }));
+  await page.route('**/api/v1/compare?*', route => route.fulfill({ json: snapshot }));
+  await page.goto('/compare?pairs=BTC_USDT,ETH_USDT&timeframe=15m&lookback=24h');
+  await expect(page.getByText('HIGH_SPOOF_RISK', { exact: true })).toHaveCount(4);
+  expect(duplicateKeyWarnings).toEqual([]);
 });

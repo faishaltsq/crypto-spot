@@ -1,5 +1,17 @@
 # Dynamic Signal Threshold Tasks
 
+## Compare Evidence Key Fix 2026-07-27
+
+- [x] Use unique keys for repeated evidence codes
+  - Owner: `opencode-evidence-key-fix`
+  - Started (UTC): `2026-07-27T13:50:00Z`
+  - Files: `web/app/compare/page.tsx`, `web/tests/e2e.spec.ts`, `tasks/todo.md`
+  - Verify: `cd web; npx playwright test tests/e2e.spec.ts; npm run build`
+  - State: `done`
+  - Completed (UTC): `2026-07-27T13:50:00Z`
+  - Result: Evidence items now include occurrence index in React keys; repeated rule codes render without warnings.
+  - Verify: focused desktop Playwright regression and `cd web; npm run build` passed.
+
 ## Repository Integration 2026-07-27
 
 - [ ] Commit completed worktree changes
