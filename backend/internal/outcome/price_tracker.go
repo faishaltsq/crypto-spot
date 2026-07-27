@@ -32,6 +32,9 @@ func NewPriceTracker() *PriceTracker {
 func (pt *PriceTracker) AddCandidate(candidate Candidate) {
 	pt.mu.Lock()
 	defer pt.mu.Unlock()
+	if _, exists := pt.observations[candidate.SignalID]; exists {
+		return
+	}
 	// Initialize with entry price
 	pt.observations[candidate.SignalID] = PriceObservation{
 		High: candidate.EntryPrice,

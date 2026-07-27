@@ -1,35 +1,25 @@
-# Implementation Plan: Versioned Database Migrations
+# Implementation Plan: Paper Execution Simulation Integration
 
-## Overview
-Replace PostgreSQL init-script mounts with a one-shot `golang-migrate` service. The service records schema versions in `schema_migrations`, validates migration integrity before execution, and blocks backend startup until migrations complete.
+## Objective
+Persist per-notional paper fills for confirmed signals, evaluate exit fills from live order book depth, then expose net outcome returns to performance APIs. No order execution, private exchange API, or trading UI is in scope.
 
-## Architecture Decisions
-- Use `golang-migrate` only. Its PostgreSQL driver provides version history and an advisory migration lock.
-- Preserve `backend/migrations/*.sql` as legacy artifacts. Add immutable `.up.sql` and `.down.sql` snapshots in `backend/migrations/versioned/` for the runner.
-- Detect legacy databases by the absence of `schema_migrations` plus existing application tables. Baseline those databases at version 5, then run repair migration 6.
-- Permit `down` for only migration 6. Earlier versions are protected because they predate version tracking and contain foundational schema.
-- Do not log database URLs. Errors identify operation and version only.
+## Design
+- Version 7 adds `paper_execution_simulations`, unique on `(signal_id, notional)`.
+- Entry uses ask-side order-book walk. Exit uses bid-side walk. Missing book is `INCOMPLETE`; depth shortfall is `PARTIAL_FILL`.
+- Monetary values are USDT. Return decimals and percentages are separate API fields.
+- Outcome horizon values carry gross/net returns. Performance aggregates persisted net 1h horizon values, excluding unavailable simulation.
 
-## Task List
+## Tasks
+- [ ] Add migration and simulation math tests.
+- [ ] Persist entry simulations immediately after confirmed signal save.
+- [ ] Update exits through outcome loop; preserve per-notional entry state.
+- [ ] Add simulations to signal API/history/export and net performance summary.
+- [ ] Verify migration, integration, build, review, commit.
 
-### Phase 1: Runner Foundation
-- [ ] Add immutable versioned migration snapshots and manifest validation.
-- [ ] Add `cmd/migrate` commands: `up`, `down`, `status`, `version`.
-- [ ] Verify checksum, sequence, retry, dirty-state, version, and exit behavior.
-
-### Phase 2: Container Startup
-- [ ] Build migration binary in backend image.
-- [ ] Add one-shot `migrate` Compose service after PostgreSQL health.
-- [ ] Make backend depend on migration completion.
-
-### Phase 3: Verification
-- [ ] Add migration unit/configuration tests.
-- [ ] Run Go tests, migration binary build, Compose config validation, and isolated PostgreSQL integration tests when Docker is available.
-
-## Risks and Mitigations
+## Risks
 | Risk | Mitigation |
 | --- | --- |
-| Existing database has no schema history | Detect populated legacy schema, baseline at 5, run repair 6. |
-| Previous init script dropped migration-004 tables | Migration 6 uses idempotent `CREATE TABLE IF NOT EXISTS` and indexes. |
-| Concurrent migrators | PostgreSQL driver lock plus one Compose migration service. |
-| Invalid or edited migration | SHA-256 manifest and ordered-version validation fail before DB writes. |
+| Missing levels | Persist explicit incomplete status; do not create zero costs. |
+| Insufficient levels | Persist fill/unfilled amount and partial status. |
+| Duplicate scanner run | DB unique constraint and upsert protect entry records. |
+| Stale outcome | Horizon JSON is updated from persisted simulation result, not raw price-only return. |

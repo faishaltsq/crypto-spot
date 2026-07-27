@@ -70,9 +70,14 @@ type Config struct {
 	MarketRecorderFlushIntMs  int
 	MarketRecorderMaxBufItems int
 
-	// Simulation
-	SimulationDefaultFeeBPS float64
-	SimulationNotionals     []float64
+	PaperSimulationEnabled      bool
+	PaperNotionals              []float64
+	PaperIncludeEntryFee        bool
+	PaperIncludeExitFee         bool
+	PaperIncludeEntrySlippage   bool
+	PaperIncludeExitSlippage    bool
+	PaperAllowPartialFill       bool
+	PaperDefaultFeeBPS          float64
 }
 
 func Load() (Config, error) {
@@ -142,18 +147,23 @@ func Load() (Config, error) {
 	cfg.MarketRecorderFlushIntMs = getInt("MARKET_RECORDER_FLUSH_INTERVAL_MS", 1000)
 	cfg.MarketRecorderMaxBufItems = getInt("MARKET_RECORDER_MAX_BUFFER_ITEMS", 50000)
 
-	// Simulation
-	cfg.SimulationDefaultFeeBPS = getFloat("SIMULATION_DEFAULT_FEE_BPS", 10.0)
-	notionalsStr := get("SIMULATION_NOTIONALS", "50,100,250,500,1000")
+	cfg.PaperSimulationEnabled = getBool("PAPER_SIMULATION_ENABLED", true)
+	cfg.PaperDefaultFeeBPS = getFloat("PAPER_DEFAULT_FEE_BPS", 10)
+	cfg.PaperIncludeEntryFee = getBool("PAPER_INCLUDE_ENTRY_FEE", true)
+	cfg.PaperIncludeExitFee = getBool("PAPER_INCLUDE_EXIT_FEE", true)
+	cfg.PaperIncludeEntrySlippage = getBool("PAPER_INCLUDE_ENTRY_SLIPPAGE", true)
+	cfg.PaperIncludeExitSlippage = getBool("PAPER_INCLUDE_EXIT_SLIPPAGE", true)
+	cfg.PaperAllowPartialFill = getBool("PAPER_ALLOW_PARTIAL_FILL", true)
+	notionalsStr := get("PAPER_NOTIONALS", "50,100,250,500,1000")
 	if notionalsStr != "" {
 		for _, part := range strings.Split(notionalsStr, ",") {
 			if val, err := strconv.ParseFloat(strings.TrimSpace(part), 64); err == nil {
-				cfg.SimulationNotionals = append(cfg.SimulationNotionals, val)
+				if val > 0 { cfg.PaperNotionals = append(cfg.PaperNotionals, val) }
 			}
 		}
 	}
-	if len(cfg.SimulationNotionals) == 0 {
-		cfg.SimulationNotionals = []float64{50, 100, 250, 500, 1000}
+	if len(cfg.PaperNotionals) == 0 {
+		cfg.PaperNotionals = []float64{50, 100, 250, 500, 1000}
 	}
 
 	if cfg.MarketMode != "gate" && cfg.MarketMode != "mock" {

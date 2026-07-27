@@ -125,12 +125,14 @@ func (s *Server) exportSignals(w http.ResponseWriter, r *http.Request) {
 	writer := csv.NewWriter(w)
 	defer writer.Flush()
 
-	header := []string{"id", "symbol", "type", "status", "primary_timeframe", "entry_price", "target_price_1", "target_price_2", "invalidation_price", "rule_score", "created_at", "expires_at"}
+	header := []string{"id", "symbol", "type", "status", "primary_timeframe", "entry_price", "target_price_1", "target_price_2", "invalidation_price", "rule_score", "paper_notional", "net_return_decimal", "simulation_status", "created_at", "expires_at"}
 	if err := writer.Write(header); err != nil {
 		return
 	}
 
 	for _, sig := range signals {
+		notional, netReturn, simulationStatus := "", "", ""
+		if len(sig.Simulations) > 0 { simulation := sig.Simulations[0]; notional = fmt.Sprintf("%.2f", simulation.Notional); simulationStatus = simulation.SimulationStatus; if simulation.NetReturn != nil { netReturn = fmt.Sprintf("%.8f", *simulation.NetReturn) } }
 		row := []string{
 			sig.ID,
 			sig.Symbol,
@@ -142,6 +144,7 @@ func (s *Server) exportSignals(w http.ResponseWriter, r *http.Request) {
 			fmt.Sprintf("%.8f", sig.Target2),
 			fmt.Sprintf("%.8f", sig.Invalidation),
 			fmt.Sprintf("%.4f", sig.RuleScore),
+			notional, netReturn, simulationStatus,
 			sig.CreatedAt.Format(time.RFC3339),
 			sig.ExpiresAt.Format(time.RFC3339),
 		}

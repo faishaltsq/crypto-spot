@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/example/crypto-spot-signal/internal/market"
+	"github.com/example/crypto-spot-signal/internal/execution_simulation"
 )
 
 // Storage interface for reading candidates and writing results.
@@ -20,15 +21,17 @@ type Service struct {
 	marketStore  *market.Store
 	tracker      *PriceTracker
 	pollInterval time.Duration
+	simulator    *execution_simulation.Simulator
 }
 
 // NewService creates a new outcome evaluation service.
-func NewService(storage Storage, marketStore *market.Store) *Service {
+func NewService(storage Storage, marketStore *market.Store, simulator *execution_simulation.Simulator) *Service {
 	return &Service{
 		storage:      storage,
 		marketStore:  marketStore,
 		tracker:      NewPriceTracker(),
 		pollInterval: 1 * time.Minute,
+		simulator: simulator,
 	}
 }
 
@@ -114,6 +117,13 @@ func (s *Service) evaluateActive(ctx context.Context) {
 		}
 
 		if len(returns) > 0 {
+			if s.simulator != nil {
+				if simulations, err := s.simulator.EvaluateExit(ctx, c.SignalID, c.Symbol); err != nil {
+					log.Printf("[outcome] exit simulation %s failed: %v", c.SignalID, err)
+				} else {
+					applyNetReturn(returns, simulations)
+				}
+			}
 			result := EvaluateTotal(c, returns)
 			if err := s.storage.SaveOutcome(ctx, result); err != nil {
 				log.Printf("[outcome] failed to save result for %s: %v", c.SignalID, err)
@@ -124,5 +134,13 @@ func (s *Service) evaluateActive(ctx context.Context) {
 			// All 24h have passed, we don't need to track this signal's prices anymore
 			s.tracker.RemoveCandidate(c.SignalID)
 		}
+	}
+}
+
+func applyNetReturn(returns map[Horizon]HorizonReturn, simulations []execution_simulation.Simulation) {
+	for _, simulation := range simulations {
+		if simulation.Status != execution_simulation.StatusComplete || simulation.NetReturn == nil || simulation.GrossReturn == nil { continue }
+		for horizon, value := range returns { netReturnPct := *simulation.NetReturn * 100; value.NetReturnPct = &netReturnPct; returns[horizon] = value }
+		return
 	}
 }

@@ -1,88 +1,32 @@
 package execution_simulation
 
-import (
-	"github.com/example/crypto-spot-signal/internal/domain"
-	"github.com/example/crypto-spot-signal/internal/market"
-)
+import "github.com/example/crypto-spot-signal/internal/domain"
 
-// CalculateSlippage simulates a market order of the given size (in USD) against the orderbook
-// to determine the volume-weighted average fill price and the resulting slippage.
-// For a BUY signal, we simulate a market BUY, which walks up the ASK side of the orderbook.
-func CalculateSlippage(notionalUSD float64, snapshot market.PairSnapshot) SlippageEstimate {
-	if notionalUSD <= 0 {
-		return SlippageEstimate{}
+type fill struct { quote, base float64; levels int }
+
+func walkQuote(levels []domain.Level, quote float64) fill {
+	var result fill
+	for _, level := range levels {
+		if level.Price <= 0 || level.Amount <= 0 || result.quote >= quote { continue }
+		available := level.Price * level.Amount
+		take := min(quote-result.quote, available)
+		result.quote += take
+		result.base += take / level.Price
+		result.levels++
 	}
-	if snapshot.Book.BestAsk <= 0 || len(snapshot.TopAsks) == 0 {
-		return SlippageEstimate{NotionalUSD: notionalUSD, FullyFilled: false}
-	}
-
-	remainingQuote := notionalUSD
-	totalSpentQuote := 0.0
-	totalAcquiredBase := 0.0
-	levelsHit := 0
-
-	for _, ask := range snapshot.TopAsks {
-		levelsHit++
-		levelQuote := ask.Price * ask.Amount
-
-		if remainingQuote <= levelQuote {
-			// This level can fully fill the remaining order
-			baseAmountToFill := remainingQuote / ask.Price
-			totalSpentQuote += remainingQuote
-			totalAcquiredBase += baseAmountToFill
-			remainingQuote = 0
-			break
-		} else {
-			// Eat this entire level and continue to the next
-			totalSpentQuote += levelQuote
-			totalAcquiredBase += ask.Amount
-			remainingQuote -= levelQuote
-		}
-	}
-
-	if totalAcquiredBase == 0 {
-		return SlippageEstimate{NotionalUSD: notionalUSD, FullyFilled: false}
-	}
-
-	vwapFillPrice := totalSpentQuote / totalAcquiredBase
-	basePrice := snapshot.LastPrice
-	if basePrice <= 0 {
-		basePrice = snapshot.Book.MidPrice
-	}
-
-	slippageBPS := 0.0
-	if basePrice > 0 {
-		// Slippage = (Fill Price - Base Price) / Base Price * 10000
-		slippageBPS = (vwapFillPrice - basePrice) / basePrice * 10000.0
-	}
-
-	return SlippageEstimate{
-		NotionalUSD:        notionalUSD,
-		EstimatedFillPrice: vwapFillPrice,
-		SlippageBPS:        slippageBPS,
-		OrderbookLevelsHit: levelsHit,
-		FullyFilled:        remainingQuote <= 0.001, // allow tiny float drift
-	}
+	return result
 }
 
-// CalculateCapacity determines the maximum order size the orderbook can absorb
-// up to a certain slippage tolerance, and how depleted the depth is.
-func CalculateCapacity(snapshot market.PairSnapshot) CapacityResult {
-	// Simple proxy: 50% of the currently visible Ask depth in quote currency
-	maxSupported := snapshot.Book.AskDepthQuote * 0.5
-	depletion := 0.0
-	if snapshot.Book.AskDepthQuote > 0 {
-		depletion = maxSupported / snapshot.Book.AskDepthQuote * 100
+func walkBase(levels []domain.Level, base float64) fill {
+	var result fill
+	for _, level := range levels {
+		if level.Price <= 0 || level.Amount <= 0 || result.base >= base { continue }
+		take := min(base-result.base, level.Amount)
+		result.base += take
+		result.quote += take * level.Price
+		result.levels++
 	}
-
-	return CapacityResult{
-		MaxSupportedNotionalUSD: maxSupported,
-		DepthDepletionPercent:   depletion,
-	}
+	return result
 }
 
-// Ensure unique sorted asks
-func GetSortedAsks(levels []domain.Level) []domain.Level {
-	// In the real system, snapshot.Asks is already sorted ascending by price.
-	return levels
-}
+func min(a, b float64) float64 { if a < b { return a }; return b }

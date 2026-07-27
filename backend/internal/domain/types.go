@@ -276,6 +276,20 @@ type Signal struct {
 	DataSource       DataSource        `json:"dataSource"`
 	CreatedAt        time.Time         `json:"createdAt"`
 	ExpiresAt        time.Time         `json:"expiresAt"`
+	Simulations      []PaperSimulation `json:"simulations,omitempty"`
+}
+
+type PaperSimulation struct {
+	Notional          float64  `json:"notional"`
+	EntryFee          *float64 `json:"entryFee,omitempty"`
+	ExitFee           *float64 `json:"exitFee,omitempty"`
+	EntrySlippage     *float64 `json:"entrySlippage,omitempty"`
+	ExitSlippage      *float64 `json:"exitSlippage,omitempty"`
+	EntrySlippageBPS  *float64 `json:"entrySlippageBps,omitempty"`
+	ExitSlippageBPS   *float64 `json:"exitSlippageBps,omitempty"`
+	GrossReturn       *float64 `json:"grossReturn,omitempty"`
+	NetReturn         *float64 `json:"netReturn,omitempty"`
+	SimulationStatus  string   `json:"simulationStatus"`
 }
 
 type WSMessage struct {

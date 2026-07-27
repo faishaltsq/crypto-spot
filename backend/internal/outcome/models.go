@@ -54,11 +54,12 @@ type HorizonReturn struct {
 	Timestamp          time.Time `json:"timestamp"`
 	Price              float64   `json:"price"`
 	ReturnPct          float64   `json:"returnPct"`          // Raw return percentage
-	NetReturnPct       float64   `json:"netReturnPct"`       // Return after estimated fees and slippage
+	NetReturnPct       *float64  `json:"netReturnPct,omitempty"` // Percent; absent when simulation is incomplete
 	MaximumFavorable   float64   `json:"maximumFavorable"`   // Highest return up to this horizon (MFE)
 	MaximumAdverse     float64   `json:"maximumAdverse"`     // Lowest return up to this horizon (MAE)
 	TargetHit          bool      `json:"targetHit"`
 	InvalidationHit    bool      `json:"invalidationHit"`
+	OutcomeStatus      string    `json:"outcomeStatus"`
 }
 
 // Result represents the comprehensive evaluation of a signal's outcome over time.
@@ -81,6 +82,7 @@ type Result struct {
 	TargetHitAt          *time.Time               `json:"targetHitAt,omitempty"`
 	InvalidationHit      bool                     `json:"invalidationHit"`
 	InvalidationHitAt    *time.Time               `json:"invalidationHitAt,omitempty"`
+	OutcomeStatus        string                   `json:"outcomeStatus"`
 }
 
 // Candidate is a signal waiting to be evaluated.

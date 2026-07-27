@@ -52,9 +52,9 @@ func (r *Repository) Pool() *pgxpool.Pool {
 
 // --- Outcome and Simulation Methods ---
 
-// ActiveCandidates retrieves signals that are still within their 24h evaluation window.
+// ActiveCandidates keeps signals one extra hour so the 24h horizon is observed and persisted.
 func (r *Repository) ActiveCandidates(ctx context.Context) ([]outcome.Candidate, error) {
-	cutoff := time.Now().Add(-24 * time.Hour)
+	cutoff := time.Now().Add(-25 * time.Hour)
 	rows, err := r.pool.Query(ctx, `
 		SELECT id, symbol, entry_price, target_price_1, target_price_2, invalidation_price, created_at
 		FROM signals
@@ -90,7 +90,7 @@ func (r *Repository) SaveOutcome(ctx context.Context, result outcome.Result) err
 		) VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (signal_id) DO UPDATE SET
 			evaluated_at = EXCLUDED.evaluated_at,
-			returns = EXCLUDED.returns,
+			returns = signal_outcomes_v2.returns || EXCLUDED.returns,
 			max_favorable_pct = EXCLUDED.max_favorable_pct,
 			max_adverse_pct = EXCLUDED.max_adverse_pct,
 			target_hit = EXCLUDED.target_hit,
@@ -105,23 +105,57 @@ func (r *Repository) SaveOutcome(ctx context.Context, result outcome.Result) err
 	return err
 }
 
-// SaveSimulation persists fee and slippage simulations to signal_simulations.
-func (r *Repository) SaveSimulation(ctx context.Context, result execution_simulation.Result) error {
-	feesJSON, _ := json.Marshal(result.Fees)
-	slippageJSON, _ := json.Marshal(result.SlippageByNotional)
-	capacityJSON, _ := json.Marshal(result.Capacity)
+func (r *Repository) SaveEntrySimulations(ctx context.Context, rows []execution_simulation.Simulation) error {
+	batch := &pgx.Batch{}
+	for _, row := range rows {
+		batch.Queue(`INSERT INTO paper_execution_simulations (
+			signal_id, notional, reference_price, estimated_entry_price, entry_fee, entry_slippage, entry_slippage_bps,
+			maximum_supported_notional, depth_coverage, liquidity_confidence, filled_notional, unfilled_notional,
+			partial_fill, simulation_status, simulated_at
+		) VALUES ($1::uuid,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+		ON CONFLICT (signal_id, notional) DO NOTHING`,
+			row.SignalID, row.Notional, row.ReferencePrice, row.EstimatedEntryPrice, row.EntryFee, row.EntrySlippage,
+			row.EntrySlippageBPS, row.MaximumSupportedNotional, row.DepthCoverage, row.LiquidityConfidence,
+			row.FilledNotional, row.UnfilledNotional, row.PartialFill, row.Status, row.SimulatedAt)
+	}
+	results := r.pool.SendBatch(ctx, batch)
+	defer results.Close()
+	for range rows { if _, err := results.Exec(); err != nil { return err } }
+	return nil
+}
 
-	_, err := r.pool.Exec(ctx, `
-		INSERT INTO signal_simulations (
-			signal_id, symbol, simulated_at, base_entry_price,
-			fees, slippage_by_notional, capacity, avg_slippage_bps, total_cost_bps
-		) VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9)
-		ON CONFLICT (signal_id) DO NOTHING
-	`,
-		result.SignalID, result.Symbol, result.SimulatedAt, result.BaseEntryPrice,
-		feesJSON, slippageJSON, capacityJSON, result.AvgSlippageBPS, result.TotalCostBPS,
-	)
-	return err
+func (r *Repository) SimulationsForSignal(ctx context.Context, signalID string) ([]execution_simulation.Simulation, error) {
+	rows, err := r.pool.Query(ctx, `SELECT id::text, signal_id::text, notional, reference_price, estimated_entry_price,
+		entry_fee, entry_slippage, entry_slippage_bps, maximum_supported_notional, depth_coverage, liquidity_confidence,
+		filled_notional, unfilled_notional, partial_fill, simulation_status, simulated_at, created_at, updated_at
+		FROM paper_execution_simulations WHERE signal_id = $1::uuid ORDER BY notional`, signalID)
+	if err != nil { return nil, err }
+	defer rows.Close()
+	var simulations []execution_simulation.Simulation
+	for rows.Next() {
+		var row execution_simulation.Simulation
+		if err := rows.Scan(&row.ID, &row.SignalID, &row.Notional, &row.ReferencePrice, &row.EstimatedEntryPrice,
+			&row.EntryFee, &row.EntrySlippage, &row.EntrySlippageBPS, &row.MaximumSupportedNotional, &row.DepthCoverage,
+			&row.LiquidityConfidence, &row.FilledNotional, &row.UnfilledNotional, &row.PartialFill, &row.Status,
+			&row.SimulatedAt, &row.CreatedAt, &row.UpdatedAt); err != nil { return nil, err }
+		if row.EstimatedEntryPrice != nil && row.FilledNotional != nil { row.BaseFilled = *row.FilledNotional / *row.EstimatedEntryPrice }
+		simulations = append(simulations, row)
+	}
+	return simulations, rows.Err()
+}
+
+func (r *Repository) UpdateExitSimulations(ctx context.Context, rows []execution_simulation.Simulation) error {
+	batch := &pgx.Batch{}
+	for _, row := range rows {
+		batch.Queue(`UPDATE paper_execution_simulations SET estimated_exit_price=$2, exit_fee=$3, exit_slippage=$4,
+			exit_slippage_bps=$5, gross_return=$6, net_return=$7, partial_fill=$8, simulation_status=$9,
+			simulated_at=$10, updated_at=NOW() WHERE id=$1::uuid`, row.ID, row.EstimatedExitPrice, row.ExitFee,
+			row.ExitSlippage, row.ExitSlippageBPS, row.GrossReturn, row.NetReturn, row.PartialFill, row.Status, row.SimulatedAt)
+	}
+	results := r.pool.SendBatch(ctx, batch)
+	defer results.Close()
+	for range rows { if _, err := results.Exec(); err != nil { return err } }
+	return nil
 }
 
 func (r *Repository) SaveCandle(ctx context.Context, candle domain.Candle) error {
@@ -394,6 +428,7 @@ func (r *Repository) ListSignalsFiltered(ctx context.Context, filter SignalFilte
 		}
 		signals = append(signals, signal)
 	}
+	if err := r.attachSimulationsToSignals(ctx, signals); err != nil { return nil, 0, err }
 	return signals, total, rows.Err()
 }
 
@@ -408,7 +443,45 @@ func (r *Repository) GetSignal(ctx context.Context, id string) (domain.Signal, e
 		FROM signals
 		WHERE id = $1::uuid
 	`, id)
-	return scanSignal(row)
+	signal, err := scanSignal(row)
+	if err != nil { return signal, err }
+	return signal, r.attachSimulations(ctx, &signal)
+}
+
+func (r *Repository) attachSimulations(ctx context.Context, signal *domain.Signal) error {
+	rows, err := r.pool.Query(ctx, `SELECT notional, entry_fee, exit_fee, entry_slippage, exit_slippage,
+		entry_slippage_bps, exit_slippage_bps, gross_return, net_return, simulation_status
+		FROM paper_execution_simulations WHERE signal_id = $1::uuid ORDER BY notional`, signal.ID)
+	if err != nil { return err }
+	defer rows.Close()
+	for rows.Next() {
+		var simulation domain.PaperSimulation
+		if err := rows.Scan(&simulation.Notional, &simulation.EntryFee, &simulation.ExitFee, &simulation.EntrySlippage,
+			&simulation.ExitSlippage, &simulation.EntrySlippageBPS, &simulation.ExitSlippageBPS, &simulation.GrossReturn,
+			&simulation.NetReturn, &simulation.SimulationStatus); err != nil { return err }
+		signal.Simulations = append(signal.Simulations, simulation)
+	}
+	return rows.Err()
+}
+
+func (r *Repository) attachSimulationsToSignals(ctx context.Context, signals []domain.Signal) error {
+	if len(signals) == 0 { return nil }
+	ids := make([]string, len(signals))
+	byID := make(map[string]*domain.Signal, len(signals))
+	for i := range signals { ids[i], byID[signals[i].ID] = signals[i].ID, &signals[i] }
+	rows, err := r.pool.Query(ctx, `SELECT signal_id::text, notional, entry_fee, exit_fee, entry_slippage, exit_slippage,
+		entry_slippage_bps, exit_slippage_bps, gross_return, net_return, simulation_status
+		FROM paper_execution_simulations WHERE signal_id = ANY($1::uuid[]) ORDER BY signal_id, notional`, ids)
+	if err != nil { return err }
+	defer rows.Close()
+	for rows.Next() {
+		var id string; var simulation domain.PaperSimulation
+		if err := rows.Scan(&id, &simulation.Notional, &simulation.EntryFee, &simulation.ExitFee, &simulation.EntrySlippage,
+			&simulation.ExitSlippage, &simulation.EntrySlippageBPS, &simulation.ExitSlippageBPS, &simulation.GrossReturn,
+			&simulation.NetReturn, &simulation.SimulationStatus); err != nil { return err }
+		if signal := byID[id]; signal != nil { signal.Simulations = append(signal.Simulations, simulation) }
+	}
+	return rows.Err()
 }
 
 type rowScanner interface {
@@ -597,16 +670,16 @@ func (r *Repository) PerformanceSummary(ctx context.Context) (domain.Performance
 	err := r.pool.QueryRow(ctx, `
 		SELECT
 			(SELECT COUNT(*) FROM signals) AS total_signals,
-			COUNT(*) AS evaluated_signals,
-			COUNT(*) FILTER (WHERE target_hit = TRUE) AS target_hits,
-			COUNT(*) FILTER (WHERE invalidation_hit = TRUE) AS invalidation_hits,
-			COALESCE(AVG(return_5m), 0),
-			COALESCE(AVG(return_15m), 0),
-			COALESCE(AVG(return_1h), 0),
-			COALESCE(AVG(return_4h), 0),
-			COALESCE(AVG(max_favorable_excursion), 0),
-			COALESCE(AVG(max_adverse_excursion), 0)
-		FROM signal_outcomes
+			COUNT(*) FILTER (WHERE returns ? '1h' AND (returns->'1h'->>'netReturnPct') IS NOT NULL) AS evaluated_signals,
+			COUNT(*) FILTER (WHERE target_hit = TRUE AND returns ? '1h' AND (returns->'1h'->>'netReturnPct') IS NOT NULL) AS target_hits,
+			COUNT(*) FILTER (WHERE invalidation_hit = TRUE AND returns ? '1h' AND (returns->'1h'->>'netReturnPct') IS NOT NULL) AS invalidation_hits,
+			COALESCE(AVG((returns->'5m'->>'netReturnPct')::double precision) / 100, 0),
+			COALESCE(AVG((returns->'15m'->>'netReturnPct')::double precision) / 100, 0),
+			COALESCE(AVG((returns->'1h'->>'netReturnPct')::double precision) / 100, 0),
+			COALESCE(AVG((returns->'4h'->>'netReturnPct')::double precision) / 100, 0),
+			COALESCE(AVG(max_favorable_pct), 0),
+			COALESCE(AVG(max_adverse_pct), 0)
+		FROM signal_outcomes_v2
 	`).Scan(
 		&summary.TotalSignals,
 		&summary.EvaluatedSignals,

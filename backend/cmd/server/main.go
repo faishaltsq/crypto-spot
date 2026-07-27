@@ -91,12 +91,14 @@ func main() {
 	go marketRecorder.Run(ctx)
 
 	// Outcome and Simulation Services
-	outcomeSvc := outcome.NewService(repo, marketStore)
+	simulator := execution_simulation.NewSimulator(repo, marketStore, execution_simulation.Config{
+		Enabled: cfg.PaperSimulationEnabled, Notionals: cfg.PaperNotionals, FeeBPS: cfg.PaperDefaultFeeBPS,
+		IncludeEntryFee: cfg.PaperIncludeEntryFee, IncludeExitFee: cfg.PaperIncludeExitFee,
+		IncludeEntrySlippage: cfg.PaperIncludeEntrySlippage, IncludeExitSlippage: cfg.PaperIncludeExitSlippage,
+		AllowPartialFill: cfg.PaperAllowPartialFill,
+	})
+	outcomeSvc := outcome.NewService(repo, marketStore, simulator)
 	go outcomeSvc.Run(ctx)
-
-	simFeeCfg := execution_simulation.FeeConfig{TakerBPS: cfg.SimulationDefaultFeeBPS, MakerBPS: cfg.SimulationDefaultFeeBPS}
-	simulator := execution_simulation.NewSimulator(repo, marketStore, simFeeCfg, cfg.SimulationNotionals)
-	_ = simulator
 
 	// Universe service
 	universeRepo := universe.NewRepository(repo.Pool())
@@ -159,6 +161,7 @@ func main() {
 		qualityMetrics,
 		qualityRepo,
 		dataSource,
+		simulator,
 	)
 
 	server := &http.Server{
@@ -198,6 +201,7 @@ func scannerLoop(
 	qualityMetrics *quality.Metrics,
 	qualityRepo *quality.Repository,
 	dataSource domain.DataSource,
+	simulator *execution_simulation.Simulator,
 ) {
 	ticker := time.NewTicker(cfg.ScanInterval)
 	defer ticker.Stop()
@@ -246,6 +250,11 @@ func scannerLoop(
 			if err := repo.SaveSignal(ctx, *signal); err != nil {
 				log.Printf("save signal %s failed: %v", signal.ID, err)
 				continue
+			}
+			if signal.Status == "CONFIRMED" {
+			if err := simulator.SimulateEntry(ctx, signal); err != nil {
+				log.Printf("simulate entry %s failed: %v", signal.ID, err)
+			}
 			}
 			hub.Broadcast("signal.created", signal)
 		}

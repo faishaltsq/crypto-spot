@@ -37,6 +37,7 @@ func EvaluateHorizon(
 		MaximumAdverse:   math.Min(mae, 0), // MAE should be negative
 		TargetHit:        targetHit,
 		InvalidationHit:  invalidationHit,
+		OutcomeStatus:    "EVALUATED",
 	}
 }
 
@@ -51,6 +52,7 @@ func EvaluateTotal(candidate Candidate, returns map[Horizon]HorizonReturn) Resul
 		Returns:         returns,
 		TargetHit:       false,
 		InvalidationHit: false,
+		OutcomeStatus:   "EVALUATED",
 	}
 
 	maxMFE := 0.0
