@@ -141,38 +141,41 @@ const (
 // FeatureSnapshot is the output of the feature engine for a single pair.
 // All scores are 0-100. Null-able fields use -1 as sentinel for "UNAVAILABLE".
 type FeatureSnapshot struct {
-	Symbol             string             `json:"symbol"`
-	Tier               int                `json:"tier"`
-	DataSource         DataSource         `json:"dataSource"` // GATE or MOCK
-	Price              float64            `json:"price"`
-	Change24hPercent   float64            `json:"change24hPercent"`
-	QuoteVolume24h     float64            `json:"quoteVolume24h"`
-	SpreadBPS          float64            `json:"spreadBps"`
-	BidDepthQuote      float64            `json:"bidDepthQuote"`
-	AskDepthQuote      float64            `json:"askDepthQuote"`
-	OrderbookImbalance float64            `json:"orderbookImbalance"`
-	SpoofScore         float64            `json:"spoofScore"`
-	SpoofStatus        SpoofStatus        `json:"spoofStatus"`
-	BuyRatio1m         float64            `json:"buyRatio1m"`
-	VolumeDeltaRatio1m float64            `json:"volumeDeltaRatio1m"`
-	RelativeVolume1m   float64            `json:"relativeVolume1m"`
-	TrendByTimeframe   map[string]string  `json:"trendByTimeframe"`
-	EMA9ByTimeframe    map[string]float64 `json:"ema9ByTimeframe"`
-	EMA20ByTimeframe   map[string]float64 `json:"ema20ByTimeframe"`
-	TrendAlignment     float64            `json:"trendAlignment"`
-	LiquidityScore     float64            `json:"liquidityScore"`
-	VolumeScore        float64            `json:"volumeScore"`
-	OrderFlowScore     float64            `json:"orderFlowScore"`
-	TrendScore         float64            `json:"trendScore"`
-	DataQualityScore   float64            `json:"dataQualityScore"`
-	DataQualityStatus  DataQualityStatus  `json:"dataQualityStatus"`
-	RuleScore          float64            `json:"ruleScore"`
-	Status             string             `json:"status"`
-	Reasons            []string           `json:"reasons"`
-	RiskFlags          []string           `json:"riskFlags"`
-	MissingFeatures    []string           `json:"missingFeatures"` // features not yet available
-	BlockedReasons     []string           `json:"blockedReasons"`  // reasons this pair is blocked from signaling
-	CalculatedAt       time.Time          `json:"calculatedAt"`
+	Symbol               string             `json:"symbol"`
+	Tier                 int                `json:"tier"`
+	DataSource           DataSource         `json:"dataSource"` // GATE or MOCK
+	Price                float64            `json:"price"`
+	Change24hPercent     float64            `json:"change24hPercent"`
+	QuoteVolume24h       float64            `json:"quoteVolume24h"`
+	SpreadBPS            float64            `json:"spreadBps"`
+	BidDepthQuote        float64            `json:"bidDepthQuote"`
+	AskDepthQuote        float64            `json:"askDepthQuote"`
+	OrderbookImbalance   float64            `json:"orderbookImbalance"`
+	SpoofScore           float64            `json:"spoofScore"`
+	SpoofStatus          SpoofStatus        `json:"spoofStatus"`
+	BuyRatio1m           float64            `json:"buyRatio1m"`
+	VolumeDeltaRatio1m   float64            `json:"volumeDeltaRatio1m"`
+	RelativeVolume1m     float64            `json:"relativeVolume1m"`
+	TrendByTimeframe     map[string]string  `json:"trendByTimeframe"`
+	EMA9ByTimeframe      map[string]float64 `json:"ema9ByTimeframe"`
+	EMA20ByTimeframe     map[string]float64 `json:"ema20ByTimeframe"`
+	TrendAlignment       float64            `json:"trendAlignment"`
+	MarketRegime         string             `json:"marketRegime"`
+	VolatilityPercentile float64            `json:"volatilityPercentile"`
+	CorrelationState     string             `json:"correlationState"`
+	LiquidityScore       float64            `json:"liquidityScore"`
+	VolumeScore          float64            `json:"volumeScore"`
+	OrderFlowScore       float64            `json:"orderFlowScore"`
+	TrendScore           float64            `json:"trendScore"`
+	DataQualityScore     float64            `json:"dataQualityScore"`
+	DataQualityStatus    DataQualityStatus  `json:"dataQualityStatus"`
+	RuleScore            float64            `json:"ruleScore"`
+	Status               string             `json:"status"`
+	Reasons              []string           `json:"reasons"`
+	RiskFlags            []string           `json:"riskFlags"`
+	MissingFeatures      []string           `json:"missingFeatures"` // features not yet available
+	BlockedReasons       []string           `json:"blockedReasons"`  // reasons this pair is blocked from signaling
+	CalculatedAt         time.Time          `json:"calculatedAt"`
 }
 
 // IsDataReady returns true only if the feature snapshot was computed with valid, complete data.
@@ -250,12 +253,19 @@ type SignalEvidence struct {
 
 // ThresholdDetail records the dynamic threshold calculation for a signal.
 type ThresholdDetail struct {
-	BaseThreshold    float64 `json:"baseThreshold"`
-	ConfirmThreshold float64 `json:"confirmThreshold"`
-	RegimePenalty    float64 `json:"regimePenalty"`
-	SpoofPenalty     float64 `json:"spoofPenalty"`
-	FinalThreshold   float64 `json:"finalThreshold"`
-	SignalScore      float64 `json:"signalScore"`
+	ThresholdVersion      string   `json:"thresholdVersion"`
+	BaseThreshold         float64  `json:"baseThreshold"`
+	TierAdjustment        float64  `json:"tierAdjustment"`
+	RegimeAdjustment      float64  `json:"regimeAdjustment"`
+	VolatilityAdjustment  float64  `json:"volatilityAdjustment"`
+	SpoofAdjustment       float64  `json:"spoofAdjustment"`
+	LiquidityAdjustment   float64  `json:"liquidityAdjustment"`
+	CorrelationAdjustment float64  `json:"correlationAdjustment"`
+	FinalThreshold        float64  `json:"finalThreshold"`
+	ActualScore           float64  `json:"actualScore"`
+	Passed                bool     `json:"passed"`
+	BlockedByThreshold    bool     `json:"blockedByThreshold"`
+	ThresholdReasonCodes  []string `json:"thresholdReasonCodes"`
 	// New detailed fields for auditability
 	TrendAlignmentPct float64           `json:"trendAlignmentPct"`
 	DataQualityScore  float64           `json:"dataQualityScoreAtSignal"`

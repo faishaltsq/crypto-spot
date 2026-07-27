@@ -10,6 +10,7 @@ import (
 	"github.com/example/crypto-spot-signal/internal/ai"
 	"github.com/example/crypto-spot-signal/internal/domain"
 	"github.com/example/crypto-spot-signal/internal/quality"
+	"github.com/example/crypto-spot-signal/internal/signals/threshold"
 	"github.com/google/uuid"
 )
 
@@ -75,6 +76,7 @@ type Engine struct {
 	ai           *ai.Client
 	qualitySvc   *quality.Service
 	metrics      *quality.Metrics
+	thresholdCfg threshold.Config
 	mu           sync.Mutex
 	last         map[string]time.Time // per-pair cooldown
 	burst        burstGuard
@@ -82,6 +84,11 @@ type Engine struct {
 }
 
 func New(minScore float64, cooldown time.Duration, aiClient *ai.Client, qualitySvc *quality.Service, metrics *quality.Metrics) *Engine {
+	thresholdCfg, err := threshold.LoadConfig(MinRuleScoreForConfirmed)
+	if err != nil {
+		log.Printf("threshold configuration invalid, using defaults: %v", err)
+		thresholdCfg = threshold.DefaultConfig(MinRuleScoreForConfirmed)
+	}
 	return &Engine{
 		minScore:     minScore,
 		confirmScore: MinRuleScoreForConfirmed,
@@ -90,8 +97,17 @@ func New(minScore float64, cooldown time.Duration, aiClient *ai.Client, qualityS
 		ai:           aiClient,
 		qualitySvc:   qualitySvc,
 		metrics:      metrics,
+		thresholdCfg: thresholdCfg,
 		last:         make(map[string]time.Time),
 	}
+}
+
+func (e *Engine) SetThresholdConfig(cfg threshold.Config) error {
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+	e.thresholdCfg = cfg
+	return nil
 }
 
 // Evaluate runs a feature snapshot through the full signal gate.
@@ -104,67 +120,44 @@ func (e *Engine) Evaluate(ctx context.Context, feature domain.FeatureSnapshot) (
 	if e.qualitySvc != nil {
 		if !e.qualitySvc.IsSignalAllowed(feature.Symbol) {
 			reasons := e.qualitySvc.BlockedReason(feature.Symbol)
-			if e.metrics != nil {
-				e.metrics.RecordSignalDecision(false)
+			for _, reason := range reasons {
+				feature.BlockedReasons = append(feature.BlockedReasons, string(reason))
 			}
-			log.Printf("[signal] BLOCKED %s: quality gate denied (reasons: %v)", feature.Symbol, reasons)
-			return nil, false
 		}
 	}
 
 	// ── GATE 2: Data quality must be valid ───────────────────────────────────
-	if feature.DataQualityScore < MinDataQualityForSignal {
-		rejectionReasons = append(rejectionReasons, domain.ReasonLowDataQuality)
-	}
-	// DataQualityStatus must be VALID or DEGRADED (not STALE, BLOCKED, UNAVAILABLE)
-	if !feature.IsDataReady() {
-		rejectionReasons = append(rejectionReasons, domain.ReasonLowDataQuality)
-		log.Printf("[signal] REJECTED %s: data quality status=%s score=%.1f missing=%v",
-			feature.Symbol, feature.DataQualityStatus, feature.DataQualityScore, feature.MissingFeatures)
-		return nil, false
-	}
-
-	// ── GATE 3: Blocked by explicit blocked reasons ───────────────────────────
-	if len(feature.BlockedReasons) > 0 {
-		log.Printf("[signal] REJECTED %s: blocked by feature engine: %v", feature.Symbol, feature.BlockedReasons)
-		return nil, false
-	}
-
-	// ── GATE 4: Minimum rule score for any signal ─────────────────────────────
-	if feature.RuleScore < e.minScore {
-		rejectionReasons = append(rejectionReasons, domain.ReasonInsufficientRuleScore)
-	}
-
-	// ── GATE 5: Valid candidate status ───────────────────────────────────────
-	if feature.Status != "BUY_SETUP" && feature.Status != "BUY_CONFIRMED_CANDIDATE" {
+	// ── GATE 2: Candidate status ─────────────────────────────────────────────
+	// BLOCKED candidates are persisted as audits so API/UI can explain rejection.
+	if feature.Status != "BUY_SETUP" && feature.Status != "BUY_CONFIRMED_CANDIDATE" && feature.Status != "BLOCKED" {
 		if len(rejectionReasons) > 0 {
 			return nil, false
 		}
 		return nil, false
 	}
 
-	// Reject if any gate failed so far
-	if len(rejectionReasons) > 0 {
-		return nil, false
-	}
+	thresholdResult := threshold.Calculate(e.thresholdCfg, thresholdInput(feature))
+	shouldRateLimit := !thresholdResult.Blocked && thresholdResult.Passed && len(feature.BlockedReasons) == 0
 
-	// ── GATE 6: Per-pair cooldown ─────────────────────────────────────────────
-	e.mu.Lock()
-	last := e.last[feature.Symbol]
-	if !last.IsZero() && time.Since(last) < e.cooldown {
+	// ── GATE 5: Per-pair cooldown ─────────────────────────────────────────────
+	if shouldRateLimit {
+		e.mu.Lock()
+		last := e.last[feature.Symbol]
+		if !last.IsZero() && time.Since(last) < e.cooldown {
+			e.mu.Unlock()
+			log.Printf("[signal] COOLDOWN %s: next allowed at %s", feature.Symbol, last.Add(e.cooldown).Format(time.RFC3339))
+			return nil, false
+		}
 		e.mu.Unlock()
-		log.Printf("[signal] COOLDOWN %s: next allowed at %s", feature.Symbol, last.Add(e.cooldown).Format(time.RFC3339))
-		return nil, false
 	}
-	e.mu.Unlock()
 
-	// ── GATE 7: Anti-burst (global) ───────────────────────────────────────────
-	if !e.burst.allow(e.maxPerMin) {
+	// ── GATE 6: Anti-burst (global) ───────────────────────────────────────────
+	if shouldRateLimit && !e.burst.allow(e.maxPerMin) {
 		log.Printf("[signal] BURST_LIMIT %s: global signal rate limit hit", feature.Symbol)
 		return nil, false
 	}
 
-	// ── GATE 8: AI review metadata ───────────────────────────────────────────
+	// ── GATE 7: AI review metadata ───────────────────────────────────────────
 	// Reviewer output cannot reject, promote, or otherwise alter rule-owned lifecycle.
 	review := e.ai.Review(ctx, feature)
 
@@ -172,8 +165,9 @@ func (e *Engine) Evaluate(ctx context.Context, feature domain.FeatureSnapshot) (
 	// BUY_CONFIRMED requires rule-owned conditions only. AI is not a signal gate.
 	signalType := "BUY_SETUP"
 	confirmBlockedReasons := make([]string, 0)
+	confirmBlockedReasons = append(confirmBlockedReasons, feature.BlockedReasons...)
 
-	if feature.RuleScore < e.confirmScore {
+	if !thresholdResult.Passed {
 		confirmBlockedReasons = append(confirmBlockedReasons, domain.ReasonInsufficientRuleScore)
 	}
 	if feature.SpoofScore > MaxSpoofScoreForConfirmed {
@@ -183,7 +177,7 @@ func (e *Engine) Evaluate(ctx context.Context, feature domain.FeatureSnapshot) (
 		confirmBlockedReasons = append(confirmBlockedReasons, domain.ReasonLowTrendAlignment)
 	}
 
-	if len(confirmBlockedReasons) == 0 {
+	if len(confirmBlockedReasons) == 0 && !thresholdResult.Blocked {
 		signalType = "BUY_CONFIRMED"
 	}
 
@@ -191,6 +185,9 @@ func (e *Engine) Evaluate(ctx context.Context, feature domain.FeatureSnapshot) (
 	status := "SETUP"
 	if signalType == "BUY_CONFIRMED" {
 		status = "CONFIRMED"
+	}
+	if thresholdResult.Blocked || !thresholdResult.Passed || len(feature.BlockedReasons) > 0 {
+		status = "BLOCKED"
 	}
 
 	if e.metrics != nil {
@@ -208,18 +205,25 @@ func (e *Engine) Evaluate(ctx context.Context, feature domain.FeatureSnapshot) (
 	evidence := buildEvidence(feature, review)
 
 	// Threshold detail — fully auditable
-	threshold := domain.ThresholdDetail{
-		BaseThreshold:     e.minScore,
-		ConfirmThreshold:  e.confirmScore,
-		RegimePenalty:     0,
-		SpoofPenalty:      0,
-		FinalThreshold:    e.minScore,
-		SignalScore:       feature.RuleScore,
-		TrendAlignmentPct: feature.TrendAlignment,
-		DataQualityScore:  feature.DataQualityScore,
-		DataQualityStatus: feature.DataQualityStatus,
-		SpoofScore:        feature.SpoofScore,
-		SpoofStatus:       feature.SpoofStatus,
+	thresholdDetail := domain.ThresholdDetail{
+		ThresholdVersion:      thresholdResult.ThresholdVersion,
+		BaseThreshold:         thresholdResult.BaseThreshold,
+		TierAdjustment:        thresholdResult.TierAdjustment,
+		RegimeAdjustment:      thresholdResult.RegimeAdjustment,
+		VolatilityAdjustment:  thresholdResult.VolatilityAdjustment,
+		SpoofAdjustment:       thresholdResult.SpoofAdjustment,
+		LiquidityAdjustment:   thresholdResult.LiquidityAdjustment,
+		CorrelationAdjustment: thresholdResult.CorrelationAdjustment,
+		FinalThreshold:        thresholdResult.FinalThreshold,
+		ActualScore:           thresholdResult.ActualScore,
+		Passed:                thresholdResult.Passed,
+		BlockedByThreshold:    thresholdResult.Blocked,
+		ThresholdReasonCodes:  thresholdResult.ReasonCodes,
+		TrendAlignmentPct:     feature.TrendAlignment,
+		DataQualityScore:      feature.DataQualityScore,
+		DataQualityStatus:     feature.DataQualityStatus,
+		SpoofScore:            feature.SpoofScore,
+		SpoofStatus:           feature.SpoofStatus,
 	}
 
 	// Get data quality score from quality service (most authoritative source)
@@ -243,6 +247,9 @@ func (e *Engine) Evaluate(ctx context.Context, feature domain.FeatureSnapshot) (
 	}
 
 	allBlocked := append(feature.BlockedReasons, confirmBlockedReasons...)
+	if thresholdResult.Blocked || !thresholdResult.Passed {
+		allBlocked = append(allBlocked, thresholdResult.ReasonCodes...)
+	}
 
 	signal := &domain.Signal{
 		ID:                uuid.NewString(),
@@ -263,7 +270,7 @@ func (e *Engine) Evaluate(ctx context.Context, feature domain.FeatureSnapshot) (
 		Features:          feature,
 		Version:           domain.CurrentSignalVersion(),
 		Evidence:          evidence,
-		Threshold:         threshold,
+		Threshold:         thresholdDetail,
 		DataQualityScore:  dataQualityScore,
 		DataQualityStatus: dataQualityStatus,
 		DataSource:        feature.DataSource,
@@ -271,15 +278,47 @@ func (e *Engine) Evaluate(ctx context.Context, feature domain.FeatureSnapshot) (
 		ExpiresAt:         now.Add(2 * time.Hour),
 	}
 
-	e.mu.Lock()
-	e.last[feature.Symbol] = now
-	e.mu.Unlock()
+	if status != "BLOCKED" {
+		e.mu.Lock()
+		e.last[feature.Symbol] = now
+		e.mu.Unlock()
+	}
 
 	log.Printf("[signal] ISSUED %s type=%s score=%.1f dq=%.1f dqStatus=%s spoof=%.1f trendAlign=%.2f ai=%s",
 		feature.Symbol, signalType, feature.RuleScore, dataQualityScore, dataQualityStatus,
 		feature.SpoofScore, feature.TrendAlignment, review.Decision)
 
 	return signal, true
+}
+
+func thresholdInput(feature domain.FeatureSnapshot) threshold.Input {
+	tier := threshold.TierA
+	if feature.Tier == 2 {
+		tier = threshold.TierB
+	} else if feature.Tier >= 3 {
+		tier = threshold.TierC
+	}
+	spoof := threshold.SpoofLow
+	if feature.SpoofStatus == domain.SpoofStatusHigh {
+		spoof = threshold.SpoofHigh
+	} else if feature.SpoofStatus == domain.SpoofStatusMedium {
+		spoof = threshold.SpoofModerate
+	}
+	liquidity := threshold.LiquidityHealthy
+	if feature.LiquidityScore < 40 {
+		liquidity = threshold.LiquidityLow
+	} else if feature.LiquidityScore < 70 {
+		liquidity = threshold.LiquidityModerate
+	}
+	quality := threshold.DataQuality(feature.DataQualityStatus)
+	if quality == "UNAVAILABLE" {
+		quality = threshold.DataQualityIncomplete
+	}
+	correlation := threshold.Correlation(feature.CorrelationState)
+	if correlation == "" {
+		correlation = threshold.CorrelationIndependent
+	}
+	return threshold.Input{Tier: tier, Regime: threshold.Regime(feature.MarketRegime), VolatilityPercentile: feature.VolatilityPercentile, SpoofRisk: spoof, Liquidity: liquidity, Correlation: correlation, DataQuality: quality, ActualScore: feature.RuleScore}
 }
 
 func buildEvidence(feature domain.FeatureSnapshot, review domain.AIReview) domain.SignalEvidence {

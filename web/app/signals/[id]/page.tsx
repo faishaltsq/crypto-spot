@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { GlobalHeader } from '@/components/terminal/TerminalHeader';
 import { getSignalById } from '@/lib/api';
-import { Signal } from '@/types/market';
+import { Signal, ThresholdDetail } from '@/types/market';
 import { ArrowLeft } from 'lucide-react';
 
 export default function SignalDetailPage() {
@@ -129,15 +129,23 @@ export default function SignalDetailPage() {
           </div>
         )}
 
-        {signal.threshold && typeof signal.threshold !== 'number' && (
+        {signal.threshold && (
           <div style={{ padding: 16, background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>Threshold Detail</h3>
+            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>Signal Evidence: Threshold</h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 8 }}>
-              <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Base</div><div style={{ fontWeight: 600 }}>{(signal.threshold as any).baseThreshold?.toFixed(0) || '-'}</div></div>
-              <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Confirm</div><div style={{ fontWeight: 600 }}>{(signal.threshold as any).confirmThreshold?.toFixed(0) || '-'}</div></div>
-              <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Spoof Pen.</div><div style={{ fontWeight: 600 }}>{(signal.threshold as any).spoofPenalty?.toFixed(0) || '-'}</div></div>
-              <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Align %</div><div style={{ fontWeight: 600 }}>{(signal.threshold as any).trendAlignmentPct != null ? ((signal.threshold as any).trendAlignmentPct * 100).toFixed(1) + '%' : '-'}</div></div>
+              <ThresholdValue label="Base" value={signal.threshold.baseThreshold} />
+              <ThresholdValue label="Tier adj." value={signal.threshold.tierAdjustment} />
+              <ThresholdValue label="Regime adj." value={signal.threshold.regimeAdjustment} />
+              <ThresholdValue label="Volatility adj." value={signal.threshold.volatilityAdjustment} />
+              <ThresholdValue label="Spoof adj." value={signal.threshold.spoofAdjustment} />
+              <ThresholdValue label="Liquidity adj." value={signal.threshold.liquidityAdjustment} />
+              <ThresholdValue label="Correlation adj." value={signal.threshold.correlationAdjustment} />
+              <ThresholdValue label="Final" value={signal.threshold.finalThreshold} />
+              <ThresholdValue label="Actual score" value={signal.threshold.actualScore} />
+              <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Result</div><div style={{ fontWeight: 600, color: signal.threshold.passed ? 'var(--positive)' : 'var(--negative)' }}>{signal.threshold.passed ? 'PASSED' : 'FAILED'}</div></div>
+              <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>Version</div><div style={{ fontWeight: 600 }}>{signal.threshold.thresholdVersion || '-'}</div></div>
             </div>
+            {(signal.threshold.blockedByThreshold || signal.threshold.thresholdReasonCodes?.length > 0) && <div style={{ fontSize: 12, color: 'var(--negative)' }}>Blocked reason: {signal.threshold.thresholdReasonCodes?.join(', ') || 'Threshold blocked'}</div>}
           </div>
         )}
 
@@ -148,6 +156,10 @@ export default function SignalDetailPage() {
       </div>
     </div>
   );
+}
+
+function ThresholdValue({ label, value }: { label: string; value: number }) {
+  return <div><div style={{ fontSize: 11, color: 'var(--muted)' }}>{label}</div><div style={{ fontWeight: 600 }}>{Number.isFinite(value) ? value.toFixed(0) : '-'}</div></div>;
 }
 
 function StatusBadge({ status }: { status: string }) {

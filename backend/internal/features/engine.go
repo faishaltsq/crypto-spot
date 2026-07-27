@@ -89,6 +89,8 @@ func (e *Engine) ComputeWithSource(snapshot market.PairSnapshot, src domain.Data
 	volumeScore := clamp((relativeVolume-0.5)*30+(buyRatio-0.5)*50+50, 0, 100)
 	orderFlowScore := clamp(50+trades1m.DeltaRatio*45+snapshot.Book.Imbalance*35, 0, 100)
 	trendScore := clamp(50+trendAlignment*50, 0, 100)
+	marketRegime := classifyRegime(trendAlignment, snapshot.Change24hPercent)
+	volatilityPercentile := volatilityPercentile(snapshot.Candles["1m"])
 
 	// ── DATA QUALITY CALCULATION ────────────────────────────────────────────
 	// BUG FIX: replaced hardcoded 100.0 with real penalty-based calculation.
@@ -210,39 +212,89 @@ func (e *Engine) ComputeWithSource(snapshot market.PairSnapshot, src domain.Data
 	}
 
 	return domain.FeatureSnapshot{
-		Symbol:             snapshot.Symbol,
-		Tier:               snapshot.Tier,
-		DataSource:         src,
-		Price:              price,
-		Change24hPercent:   snapshot.Change24hPercent,
-		QuoteVolume24h:     snapshot.QuoteVolume24h,
-		SpreadBPS:          snapshot.Book.SpreadBPS,
-		BidDepthQuote:      snapshot.Book.BidDepthQuote,
-		AskDepthQuote:      snapshot.Book.AskDepthQuote,
-		OrderbookImbalance: snapshot.Book.Imbalance,
-		SpoofScore:         snapshot.Book.SpoofScore,
-		SpoofStatus:        domain.SpoofStatusFrom(snapshot.Book.SpoofScore),
-		BuyRatio1m:         buyRatio,
-		VolumeDeltaRatio1m: trades1m.DeltaRatio,
-		RelativeVolume1m:   relativeVolume,
-		TrendByTimeframe:   trendByTF,
-		EMA9ByTimeframe:    ema9ByTF,
-		EMA20ByTimeframe:   ema20ByTF,
-		TrendAlignment:     trendAlignment,
-		LiquidityScore:     liquidityScore,
-		VolumeScore:        volumeScore,
-		OrderFlowScore:     orderFlowScore,
-		TrendScore:         trendScore,
-		DataQualityScore:   dataQuality,
-		DataQualityStatus:  dqStatus,
-		RuleScore:          ruleScore,
-		Status:             status,
-		Reasons:            reasons,
-		RiskFlags:          unique(riskFlags),
-		MissingFeatures:    missingFeatures,
-		BlockedReasons:     unique(blockedReasons),
-		CalculatedAt:       now,
+		Symbol:               snapshot.Symbol,
+		Tier:                 snapshot.Tier,
+		DataSource:           src,
+		Price:                price,
+		Change24hPercent:     snapshot.Change24hPercent,
+		QuoteVolume24h:       snapshot.QuoteVolume24h,
+		SpreadBPS:            snapshot.Book.SpreadBPS,
+		BidDepthQuote:        snapshot.Book.BidDepthQuote,
+		AskDepthQuote:        snapshot.Book.AskDepthQuote,
+		OrderbookImbalance:   snapshot.Book.Imbalance,
+		SpoofScore:           snapshot.Book.SpoofScore,
+		SpoofStatus:          domain.SpoofStatusFrom(snapshot.Book.SpoofScore),
+		BuyRatio1m:           buyRatio,
+		VolumeDeltaRatio1m:   trades1m.DeltaRatio,
+		RelativeVolume1m:     relativeVolume,
+		TrendByTimeframe:     trendByTF,
+		EMA9ByTimeframe:      ema9ByTF,
+		EMA20ByTimeframe:     ema20ByTF,
+		TrendAlignment:       trendAlignment,
+		MarketRegime:         marketRegime,
+		VolatilityPercentile: volatilityPercentile,
+		CorrelationState:     "INDEPENDENT",
+		LiquidityScore:       liquidityScore,
+		VolumeScore:          volumeScore,
+		OrderFlowScore:       orderFlowScore,
+		TrendScore:           trendScore,
+		DataQualityScore:     dataQuality,
+		DataQualityStatus:    dqStatus,
+		RuleScore:            ruleScore,
+		Status:               status,
+		Reasons:              reasons,
+		RiskFlags:            unique(riskFlags),
+		MissingFeatures:      missingFeatures,
+		BlockedReasons:       unique(blockedReasons),
+		CalculatedAt:         now,
 	}
+}
+
+func classifyRegime(trendAlignment, change24h float64) string {
+	switch {
+	case trendAlignment <= -0.60:
+		return "STRONG_DOWNTREND"
+	case change24h <= -8:
+		return "MARKET_SELL_OFF"
+	case change24h >= 12:
+		return "PUMP_CONDITION"
+	case trendAlignment >= 0.60:
+		return "STRONG_UPTREND"
+	case trendAlignment >= 0.20:
+		return "WEAK_UPTREND"
+	case trendAlignment <= 0.10:
+		return "RANGING"
+	default:
+		return "UNDETERMINED"
+	}
+}
+
+func volatilityPercentile(candles []domain.Candle) float64 {
+	if len(candles) < 21 {
+		return -1
+	}
+	ranges := make([]float64, 0, len(candles)-1)
+	previous := 0.0
+	for _, candle := range candles {
+		if !candle.Closed || candle.Close <= 0 {
+			continue
+		}
+		if previous > 0 {
+			ranges = append(ranges, math.Abs(candle.Close-previous)/previous)
+		}
+		previous = candle.Close
+	}
+	if len(ranges) < 20 {
+		return -1
+	}
+	current := ranges[len(ranges)-1]
+	below := 0
+	for _, value := range ranges {
+		if value <= current {
+			below++
+		}
+	}
+	return float64(below) / float64(len(ranges)) * 100
 }
 
 // dataQualityStatus maps a numeric data quality score to a status label.
@@ -258,7 +310,6 @@ func dataQualityStatus(score float64) domain.DataQualityStatus {
 		return domain.DataQualityBlocked
 	}
 }
-
 
 func scoreLiquidity(book domain.BookMetrics, cfg Config) float64 {
 	if !book.Synced || book.MidPrice <= 0 {

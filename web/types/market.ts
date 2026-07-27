@@ -1,6 +1,6 @@
 export type Trend = "bullish" | "bearish" | "neutral";
 export type DataSource = "GATE" | "MOCK";
-export type DataQualityStatus = "VALID" | "DEGRADED" | "STALE" | "BLOCKED" | "UNAVAILABLE";
+export type DataQualityStatus = "VALID" | "DEGRADED" | "STALE" | "UNSYNCED" | "INCOMPLETE" | "BLOCKED" | "UNAVAILABLE";
 export type SpoofStatus = "LOW" | "MEDIUM" | "HIGH";
 
 export interface FeatureSnapshot {
@@ -23,6 +23,9 @@ export interface FeatureSnapshot {
   ema9ByTimeframe: Record<string, number>;
   ema20ByTimeframe: Record<string, number>;
   trendAlignment: number;
+  marketRegime: string;
+  volatilityPercentile: number;
+  correlationState: string;
   liquidityScore: number;
   volumeScore: number;
   orderFlowScore: number;
@@ -77,7 +80,7 @@ export interface Signal {
   dataSource: DataSource;
   createdAt: string;
   expiresAt: string;
-  threshold: number;
+  threshold: ThresholdDetail;
   evidence: {
     passed: string[];
     failed: string[];
@@ -105,6 +108,22 @@ export interface Signal {
       totalFeeUsd: number;
     };
   };
+}
+
+export interface ThresholdDetail {
+  thresholdVersion: string;
+  baseThreshold: number;
+  tierAdjustment: number;
+  regimeAdjustment: number;
+  volatilityAdjustment: number;
+  spoofAdjustment: number;
+  liquidityAdjustment: number;
+  correlationAdjustment: number;
+  finalThreshold: number;
+  actualScore: number;
+  passed: boolean;
+  blockedByThreshold: boolean;
+  thresholdReasonCodes: string[];
 }
 
 export interface Candle {
@@ -268,3 +287,15 @@ export interface SignalWithOutcome extends Signal {
     };
   };
 }
+
+export interface ComparePoint { time: string; value: number; }
+export interface CompareHistorical { netReturn: number | null; winRate: number | null; sampleCount: number; netExpectancy: number | null; mfe: number | null; mae: number | null; insufficientSample: boolean; }
+export interface ComparePair {
+  symbol: string; rank: number; tier: number; price: number; change24hPercent: number; quoteVolume24h: number;
+  relativeVolume: number | null; spreadBps: number | null; bidDepthQuote: number | null; askDepthQuote: number | null; liquidityScore: number | null;
+  estimatedSlippage100: number | null; estimatedSlippage500: number | null; cvd: number | null; orderbookImbalance: number | null; spoofScore: number | null;
+  trend: string | null; momentum: number | null; atrPercent: number | null; multiTimeframeAlignment: number | null; signalScore: number | null; dynamicThreshold: number | null;
+  dataQualityScore: number | null; dataQualityStatus: DataQualityStatus; activeSignal: boolean | null; historical: CompareHistorical; pricePerformance: ComparePoint[];
+  supportingEvidence: string[]; contradictingEvidence: string[]; freshness: { lastMarketUpdate: string; isStale: boolean; bookSynced: boolean; }; partialMetrics: string[];
+}
+export interface CompareResponse { snapshotAt: string; timeframe: string; lookback: string; pairs: ComparePair[]; unavailable: Array<{ symbol: string; code: string; message: string }>; cacheTtlSeconds: number; filters: { normalizePerformance: boolean; marketTier?: number; minimumDataQuality?: number; activeSignalOnly: boolean; watchlistOnlyAvailable: boolean; }; }
