@@ -26,6 +26,11 @@ export function GlobalHeader({ symbol = '' }: { symbol?: string }) {
           <span>Crypto Spot Signal</span>
         </Link>
         <span className="mode-badge">LIVE</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '12px' }}>
+          <div style={{ padding: '2px 6px', borderRadius: '4px', background: 'var(--bg-secondary)', fontSize: '10px', color: 'var(--success)' }}>SPOT ONLY</div>
+          <div style={{ padding: '2px 6px', borderRadius: '4px', background: 'var(--bg-secondary)', fontSize: '10px', color: 'var(--text)' }}>Gate.io SPOT</div>
+          <div style={{ padding: '2px 6px', borderRadius: '4px', background: 'var(--bg-secondary)', fontSize: '10px', color: 'var(--error)' }}>No Futures</div>
+        </div>
       </div>
 
       <nav className="terminal-topbar-center">

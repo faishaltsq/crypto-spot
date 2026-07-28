@@ -8,6 +8,8 @@ import type {
   Signal,
   SignalWithOutcome,
   CompareResponse,
+  SellSignalDetail,
+  SellSignalOutcome,
 } from "@/types/market";
 
 export const API_URL =
@@ -133,3 +135,10 @@ export async function exportSignalsCSV(params: SignalFilterParams): Promise<Blob
   if (!res.ok) throw new Error('Export failed');
   return res.blob();
 }
+
+export const sellApi = {
+  listSignals: (symbol?: string, limit: number = 100) =>
+    request<{ signals: SellSignalDetail[] }>(`/api/v1/sell/signals?symbol=${symbol ?? ''}&limit=${limit}`),
+  getSignal: (id: string) => request<SellSignalDetail>(`/api/v1/sell/signals/${id}`),
+  getOutcome: (id: string) => request<SellSignalOutcome>(`/api/v1/sell/signals/${id}/outcome`),
+};

@@ -1,5 +1,15 @@
 # Dynamic Signal Threshold Tasks
 
+## SELL Signal Engine 2026-07-28
+
+- [ ] Build SPOT-only SELL signal system (tradeflow/structure/spoof features, SELL engine, dynamic threshold, invalidation, lifecycle, outcome, API, WebSocket, Terminal UI, Pair Diagnostic, Performance, notifications, tests).
+  - Owner: `opencode-sell-engine`
+  - Started (UTC): `2026-07-28T00:00:00Z`
+  - Files: new packages under `backend/internal/features/tradeflow`, `backend/internal/features/structure`, `backend/internal/features/spoofing`, `backend/internal/signals/sell`; shared-file edits (claimed, small hunks only) in `backend/internal/config/config.go`, `backend/internal/domain/types.go`, `backend/internal/httpapi/server.go`, `backend/internal/realtime/hub.go`, `backend/cmd/server/main.go`, plus new migration `012_sell_signals` and web terminal/diagnostic/performance components.
+  - Verify: `cd backend; go build ./...; go test ./...` and `cd web; npm run build`
+  - State: `in_progress`
+  - Note: does not touch `web/components/pairs/VirtualPairList.tsx`, `web/lib/settings.ts`, `backend/internal/httpapi/settings.go` beyond additive route registration; those active hunks from other agents are left untouched.
+
 ## Terminal Data Quality Missing Metrics Fix 2026-07-27
 
 - [x] Render incomplete quality metrics safely

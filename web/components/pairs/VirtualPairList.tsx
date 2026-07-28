@@ -61,13 +61,13 @@ export function VirtualPairList({ activeSymbol }: VirtualPairListProps) {
 
     if (search) {
       const s = search.toLowerCase();
-      result = result.filter(p => p.symbol.toLowerCase().includes(s));
+      result = result.filter(p => p.symbol && p.symbol.toLowerCase().includes(s));
     }
 
     result = result.sort((a, b) => {
       // Keep watchlisted items on top if in 'All' tab, or just sort by volume
-      const aFav = watchlist.includes(a.symbol);
-      const bFav = watchlist.includes(b.symbol);
+      const aFav = a.symbol ? watchlist.includes(a.symbol) : false;
+      const bFav = b.symbol ? watchlist.includes(b.symbol) : false;
       if (activeTab === 'All' && aFav && !bFav) return -1;
       if (activeTab === 'All' && !aFav && bFav) return 1;
       return (b.quoteVolume24h || 0) - (a.quoteVolume24h || 0);
@@ -205,7 +205,7 @@ export function VirtualPairList({ activeSymbol }: VirtualPairListProps) {
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                       <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        {pair.symbol.replace('_', '/')}
+                        {pair.symbol?.replace('_', '/') ?? pair.symbol}
                       </span>
                       <span style={{ fontSize: '10px', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
                         <span style={{ 

@@ -58,7 +58,7 @@ func New(
 	router.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"http://localhost:*", "https://*"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-User-ID", "X-User-Role"},
 		AllowCredentials: false,
 		MaxAge:           300,
 	}))
@@ -89,6 +89,12 @@ func New(
 		r.Get("/settings/preferences", server.settingsPreferences)
 		r.Put("/settings/preferences", server.saveSettingsPreferences)
 		r.Get("/settings/system", server.systemSettings)
+
+		r.Route("/sell", func(r chi.Router) {
+			r.Get("/signals", server.listSellSignals)
+			r.Get("/signals/{id}", server.getSellSignal)
+			r.Get("/signals/{id}/outcome", server.getSellSignalOutcome)
+		})
 
 		r.Route("/market/universe", func(r chi.Router) {
 			r.Get("/", server.universePairs)

@@ -85,6 +85,14 @@ type Config struct {
 	PaperIncludeExitSlippage    bool
 	PaperAllowPartialFill       bool
 	PaperDefaultFeeBPS          float64
+
+	// SPOT-only market source lock. Startup fails if these are misconfigured.
+	SignalMarketSource               string
+	FuturesDataEnabled                bool
+	SpotExecutedTradeRequired        bool
+	SpotOrderbookConfirmationRequired bool
+
+	SellSignal SellConfig
 }
 
 func Load() (Config, error) {
@@ -180,8 +188,25 @@ func Load() (Config, error) {
 		cfg.PaperNotionals = []float64{50, 100, 250, 500, 1000}
 	}
 
+	// SPOT-only market source lock.
+	cfg.SignalMarketSource = strings.ToUpper(get("SIGNAL_MARKET_SOURCE", "SPOT"))
+	cfg.FuturesDataEnabled = getBool("FUTURES_DATA_ENABLED", false)
+	cfg.SpotExecutedTradeRequired = getBool("SPOT_EXECUTED_TRADE_REQUIRED", true)
+	cfg.SpotOrderbookConfirmationRequired = getBool("SPOT_ORDERBOOK_CONFIRMATION_REQUIRED", true)
+
+	cfg.SellSignal = loadSellConfig()
+
 	if cfg.MarketMode != "gate" && cfg.MarketMode != "mock" {
 		return cfg, fmt.Errorf("MARKET_MODE must be gate or mock")
+	}
+	if cfg.SignalMarketSource != "SPOT" {
+		return cfg, fmt.Errorf("SIGNAL_MARKET_SOURCE must be SPOT: futures/derivative data sources are not supported")
+	}
+	if cfg.FuturesDataEnabled {
+		return cfg, fmt.Errorf("FUTURES_DATA_ENABLED must be false: this system is SPOT-only")
+	}
+	if err := validateSellConfig(cfg.SellSignal); err != nil {
+		return cfg, err
 	}
 	if cfg.OrderbookDepthPercent <= 0 {
 		return cfg, fmt.Errorf("ORDERBOOK_DEPTH_PERCENT must be positive")

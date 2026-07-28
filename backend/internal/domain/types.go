@@ -43,6 +43,37 @@ const (
 	ReasonLimitedCandleHistory = "LIMITED_CANDLE_HISTORY"
 	ReasonLowRecentTradeCount  = "LOW_RECENT_TRADE_COUNT"
 	ReasonMissingTimeframes    = "MISSING_TIMEFRAMES"
+
+	// --- SELL-side reason codes (protective sell / take-profit / avoid-entry) ---
+
+	// Supporting evidence (bearish / take-profit)
+	ReasonAggressiveSellPressure = "AGGRESSIVE_SELL_PRESSURE"
+	ReasonNegativeCVDSlope       = "NEGATIVE_CVD_SLOPE"
+	ReasonLargeSellTrades        = "LARGE_SELL_TRADES"
+	ReasonBidWallFailure         = "BID_WALL_FAILURE"
+	ReasonAskWallFailure         = "ASK_WALL_FAILURE"
+	ReasonSupportBreakdown       = "SUPPORT_BREAKDOWN"
+	ReasonLowerHighLowerLow      = "LOWER_HIGH_LOWER_LOW"
+	ReasonFailedReclaim          = "FAILED_RECLAIM"
+	ReasonBreakdownFollowThrough = "BREAKDOWN_FOLLOW_THROUGH"
+	ReasonBearishMultiTFAlign    = "BEARISH_MULTI_TIMEFRAME_ALIGNMENT"
+	ReasonOverextendedRally      = "OVEREXTENDED_RALLY"
+	ReasonBuyMomentumExhaustion  = "BUY_MOMENTUM_EXHAUSTION"
+	ReasonAskReplenishment       = "ASK_REPLENISHMENT"
+
+	// Contradicting / invalidation evidence
+	ReasonSellPressureWeakened  = "SELL_PRESSURE_WEAKENED"
+	ReasonBuyPressureRecovered  = "BUY_PRESSURE_RECOVERED"
+	ReasonSupportReclaimed      = "SUPPORT_RECLAIMED"
+	ReasonBullishDivergence     = "BULLISH_DIVERGENCE"
+	ReasonSuspectedIcebergWall  = "SUSPECTED_ICEBERG_WALL"
+
+	// Gate rejection / blocking codes
+	ReasonInsufficientSellRuleScore = "INSUFFICIENT_SELL_RULE_SCORE"
+	ReasonLowBearishAlignment      = "LOW_BEARISH_ALIGNMENT"
+	ReasonInsufficientTradeSample  = "INSUFFICIENT_TRADE_SAMPLE"
+	ReasonCandleNotClosed          = "CANDLE_NOT_CLOSED"
+	ReasonSellSignalCooldown       = "SELL_SIGNAL_COOLDOWN"
 )
 
 // --- Core Market Types ---
@@ -333,6 +364,32 @@ type OutcomeCandidate struct {
 	ExpiresAt    time.Time
 }
 
+// --- SELL Signal Types ---
+
+// SellSignalType enumerates every directional/protective signal type the
+// SELL engine can emit. These are distinct from the BUY engine's
+// BUY_SETUP/BUY_CONFIRMED types and are never conflated with them.
+const (
+	SellSignalSetup            = "SELL_SETUP"
+	SellSignalConfirmed        = "SELL_CONFIRMED"
+	TakeProfitSuggested        = "TAKE_PROFIT_SUGGESTED"
+	AvoidEntrySignal           = "AVOID_ENTRY"
+	ExitWarningSignal          = "EXIT_WARNING"
+)
+
+// SellInvalidationReason enumerates why an active SELL/TAKE_PROFIT signal
+// was invalidated, distinct from BUY invalidation (which is price-target
+// based). SELL invalidation is evidence-based: the bearish thesis itself
+// stopped holding.
+const (
+	InvalidationSellPressureWeakened = "SELL_PRESSURE_WEAKENED"
+	InvalidationBuyPressureRecovered = "BUY_PRESSURE_RECOVERED"
+	InvalidationSupportReclaimed     = "SUPPORT_RECLAIMED"
+	InvalidationBullishDivergence    = "BULLISH_DIVERGENCE"
+	InvalidationExpired              = "EXPIRED"
+)
+
+// PerformanceSummary struct definition follows.
 type PerformanceSummary struct {
 	TotalSignals     int64   `json:"totalSignals"`
 	EvaluatedSignals int64   `json:"evaluatedSignals"`

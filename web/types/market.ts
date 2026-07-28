@@ -299,3 +299,33 @@ export interface ComparePair {
   supportingEvidence: string[]; contradictingEvidence: string[]; freshness: { lastMarketUpdate: string; isStale: boolean; bookSynced: boolean; }; partialMetrics: string[];
 }
 export interface CompareResponse { snapshotAt: string; timeframe: string; lookback: string; pairs: ComparePair[]; unavailable: Array<{ symbol: string; code: string; message: string }>; cacheTtlSeconds: number; filters: { normalizePerformance: boolean; marketTier?: number; minimumDataQuality?: number; activeSignalOnly: boolean; watchlistOnlyAvailable: boolean; }; }
+
+// --- SELL Signal Types ---
+export interface SellSignalDetail extends Signal {
+  sellScore: number;
+  sellRuleScore: number;
+  sellBaseThreshold: number;
+  sellFinalThreshold: number;
+  tradeFlowSnapshot: any; // Raw JSON
+  bearishStructureSnapshot: any; // Raw JSON
+  spoofAnalysis: any; // Raw JSON
+  supportingEvidence: string[];
+  contradictingEvidence: string[];
+  invalidationReason?: string;
+}
+
+export interface SellSignalOutcome {
+  signalId: string;
+  symbol: string;
+  evaluatedAt: string;
+  directionalReturn: number;
+  directionalAccuracy: boolean;
+  maxDownsideMove: number;
+  maxAdverseUpsideMove: number;
+  supportReclaim: boolean;
+  breakdownFollowThrough: boolean;
+  invalidated: boolean;
+  avoidEntryEffectiveness?: number;
+  exitWarningEffectiveness?: number;
+  takeProfitEffectiveness?: number;
+}

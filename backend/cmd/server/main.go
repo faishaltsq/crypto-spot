@@ -23,10 +23,12 @@ import (
 	"github.com/example/crypto-spot-signal/internal/mock"
 	"github.com/example/crypto-spot-signal/internal/outcome"
 	"github.com/example/crypto-spot-signal/internal/quality"
+	"github.com/example/crypto-spot-signal/internal/features/tradeflow"
 	"github.com/example/crypto-spot-signal/internal/realtime"
 	"github.com/example/crypto-spot-signal/internal/recorder"
 	runtimestate "github.com/example/crypto-spot-signal/internal/runtime"
 	"github.com/example/crypto-spot-signal/internal/signals"
+	"github.com/example/crypto-spot-signal/internal/signals/sell"
 	"github.com/example/crypto-spot-signal/internal/storage"
 )
 
@@ -80,6 +82,16 @@ func main() {
 	qualityRepo := quality.NewRepository(repo.Pool())
 
 	signalEngine := signals.New(cfg.SignalMinScore, cfg.SignalPairCooldown, aiClient, qualitySvc, qualityMetrics)
+
+	// SELL signal engine (protective sell / take-profit / avoid-entry / exit
+	// warning). Fully independent state from the BUY engine — see
+	// internal/signals/sell/engine.go.
+	sellEngine := sell.New(sell.FromAppConfig(cfg.SellSignal))
+	sellBuilder := sell.NewBuilder(tradeflow.SampleConfig{
+		MinTradeCount:         cfg.SellSignal.MinTradeCount,
+		MinTradeNotionalUSDT:  cfg.SellSignal.MinTradeNotionalUSDT,
+		MinObservationSeconds: cfg.SellSignal.MinObservationSeconds,
+	})
 	// Market Data Recorder
 	recorderCfg := recorder.Config{
 		Enabled:         cfg.MarketRecorderEnabled,
@@ -99,6 +111,9 @@ func main() {
 	})
 	outcomeSvc := outcome.NewService(repo, marketStore, simulator)
 	go outcomeSvc.Run(ctx)
+
+	sellOutcomeSvc := sell.NewOutcomeEvaluator(repo, marketStore)
+	go sellOutcomeSvc.Run(ctx)
 
 	// Universe service
 	universeRepo := universe.NewRepository(repo.Pool())
@@ -154,6 +169,8 @@ func main() {
 		state,
 		featureEngine,
 		signalEngine,
+		sellEngine,
+		sellBuilder,
 		repo,
 		cache,
 		hub,
@@ -194,6 +211,8 @@ func scannerLoop(
 	state *runtimestate.State,
 	featureEngine *features.Engine,
 	signalEngine *signals.Engine,
+	sellEngine *sell.Engine,
+	sellBuilder *sell.Builder,
 	repo *storage.Repository,
 	cache *storage.Cache,
 	hub *realtime.Hub,
@@ -268,6 +287,37 @@ func scannerLoop(
 			}
 			hub.Broadcast("signal.created", signal)
 		}
+
+		// SELL engine: protective sell / take-profit / avoid-entry / exit
+		// warning. Fully independent of the BUY engine above; it only reads
+		// each pair's latest BUY signal state to decide which SELL signal
+		// family applies (see internal/signals/sell/context.go).
+		for _, feature := range computed {
+			snapshot, ok := marketStore.Snapshot(feature.Symbol, cfg.OrderbookDepthPercent)
+			if !ok {
+				continue
+			}
+			buyCtx := buildBuyContext(ctx, repo, feature.Symbol)
+			sellFeature := sellBuilder.Build(snapshot, feature)
+			sellSignal, created := sellEngine.Evaluate(sellFeature, buyCtx)
+			if !created {
+				continue
+			}
+			extras := storage.SellSignalExtras{
+				SellScore:            sellFeature.SellRuleScore,
+				SellRuleScore:        sellFeature.SellRuleScore,
+				SellBaseThreshold:    sellSignal.Threshold.BaseThreshold,
+				SellFinalThreshold:   sellSignal.Threshold.FinalThreshold,
+				TradeFlowSnapshot:    sellFeature.TradeFlowByWindow,
+				BearishStructure:     sellFeature.StructureByTimeframe,
+				SpoofAnalysis:        sellFeature.Walls,
+			}
+			if err := repo.SaveSellSignal(ctx, *sellSignal, extras); err != nil {
+				log.Printf("save sell signal %s failed: %v", sellSignal.ID, err)
+				continue
+			}
+			hub.Broadcast("sell.signal.created", sellSignal)
+		}
 	}
 
 	run()
@@ -279,6 +329,29 @@ func scannerLoop(
 			run()
 		}
 	}
+}
+
+// buildBuyContext queries the latest open BUY-family signal for a symbol
+// and translates it into a sell.ActiveBuyContext. The SELL engine never
+// queries storage itself (see internal/signals/sell/context.go) — this is
+// the single place that bridges storage state into the SELL engine.
+func buildBuyContext(ctx context.Context, repo *storage.Repository, symbol string) sell.ActiveBuyContext {
+	id, signalType, status, entryPrice, createdAt, found, err := repo.LatestBuySignalState(ctx, symbol)
+	if err != nil {
+		log.Printf("lookup buy signal state %s failed: %v", symbol, err)
+		return sell.ActiveBuyContext{}
+	}
+	if !found {
+		return sell.ActiveBuyContext{}
+	}
+	ctxOut := sell.ActiveBuyContext{
+		HasCandidateSignal: signalType == "BUY_SETUP",
+		HasActivePosition:  signalType == "BUY_CONFIRMED" && status == "CONFIRMED",
+		ActiveSignalID:     id,
+		ActiveEntryPrice:   entryPrice,
+		ActiveSince:        createdAt,
+	}
+	return ctxOut
 }
 
 func outcomeLoop(
