@@ -1,0 +1,20 @@
+{
+  "servers": {
+    "agent-skills": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "agent-skills"
+      ]
+    },
+    "caveman": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "caveman"
+      ]
+    }
+  }
+}

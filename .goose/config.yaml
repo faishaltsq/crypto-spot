@@ -1,0 +1,23 @@
+extensions:
+  agent-skills:
+    name: agent-skills
+    description: ""
+    cmd: npx
+    args:
+      - -y
+      - agent-skills
+    enabled: true
+    envs: {}
+    type: stdio
+    timeout: 300
+  caveman:
+    name: caveman
+    description: ""
+    cmd: npx
+    args:
+      - -y
+      - caveman
+    enabled: true
+    envs: {}
+    type: stdio
+    timeout: 300

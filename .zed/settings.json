@@ -1,0 +1,22 @@
+{
+  "context_servers": {
+    "agent-skills": {
+      "source": "custom",
+      "command": "npx",
+      "args": [
+        "-y",
+        "agent-skills"
+      ],
+      "env": {}
+    },
+    "caveman": {
+      "source": "custom",
+      "command": "npx",
+      "args": [
+        "-y",
+        "caveman"
+      ],
+      "env": {}
+    }
+  }
+}

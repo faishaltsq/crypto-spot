@@ -1,0 +1,7 @@
+[mcp_servers.agent-skills]
+command = "npx"
+args = [ "-y", "agent-skills" ]
+
+[mcp_servers.caveman]
+command = "npx"
+args = [ "-y", "caveman" ]
