@@ -1,5 +1,19 @@
 # Dynamic Signal Threshold Tasks
 
+## SL-Hit Stale Active Signal + Stale Docker Image Fix 2026-07-28
+
+- [x] Fix SELL signals staying in Active Signals / chart drawings not clearing after stop-loss hit; fix stale Docker images masking source changes.
+  - Owner: `opencode-sl-active-fix`
+  - Started (UTC): `2026-07-28T16:00:00Z`
+  - Files: `backend/internal/signals/sell/outcome.go`, `tasks/todo.md`
+  - Verify: `cd backend; go build ./...; go test ./internal/signals/sell/...` and manual `GET /api/v1/signals/active` returns 200
+  - State: `done`
+  - Completed (UTC): `2026-07-28T16:20:00Z`
+  - Result: `outcome.go`'s `evaluate()` already closed signals via `CloseSellSignal` when `EvaluateDirectional` returned `Invalidated`, but always tagged the reason `SUPPORT_RECLAIMED` even when the invalidation was actually a stop-loss breach (`DirectionalReturn > 0`, i.e. price moved against the protective SELL). Added a branch so SL breaches record `invalidation_reason = "STOP_LOSS_BREACHED"` instead of being mislabeled, while the actual close/broadcast path (status -> `INVALIDATED`, `signal.updated` WS broadcast) was unchanged and already correct. Separately, discovered the running `crypto-spot-signal-backend` Docker image was stale (built before the `/api/v1/signals/active` route and several `httpapi`/`storage` changes in the working tree), causing chi to route `GET /signals/active` into the old `/signals/{id}` handler and fail with `invalid input syntax for type uuid: "active"` (500). Rebuilt and recreated `backend`, `ai-service`, and `web` images/containers from current source; confirmed `/api/v1/signals/active` now returns 200 with `{"signals":[],...}` and ai-service reports `provider":"deepseek"` per the user's new `.env` key.
+  - Verify: `go build ./...` and `go test ./internal/signals/sell/...` passed. `docker compose build backend ai-service web` succeeded (`npm run build`/`npx tsc --noEmit` clean). Live `GET /api/v1/signals/active` returns `200`.
+  - Note: user's local `.env` (gitignored) now has `AI_ENABLED=true`, `AI_PROVIDER=deepseek`, `DEEPSEEK_API_KEY` set, `AI_MODEL=deepseek-chat` — no code change needed for that part, only container recreation since `env_file` is applied at container-create time, not live-reloaded.
+  - Committed: `82f4890` on branch `fix/sell-signal-realtime-wiring`, pushed to `origin/fix/sell-signal-realtime-wiring`. This commit also included prior uncommitted worktree changes from the "Unified BUY/SELL Signal Lifecycle Contract" and "SELL Signal Logic Fix" tasks above (both already marked `done` in this file with no conflicting active lock at commit time).
+
 ## Unified BUY/SELL Signal Lifecycle Contract 2026-07-28
 
 - [ ] Backend-owned `isActive`/`direction`/`strategy`/`lifecycleGroup` contract on every signal response + unified `/api/v1/signals/active` endpoint + realtime `signal.updated` lifecycle broadcasts; frontend unified signal store/selectors consuming that contract instead of re-deriving status client-side.
