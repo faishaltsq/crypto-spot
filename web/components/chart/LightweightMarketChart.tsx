@@ -5,6 +5,7 @@ import { IChartApi, ISeriesApi, UTCTimestamp, CrosshairMode } from 'lightweight-
 import { useWorkspace } from '@/stores/workspace';
 import { useMarketStore } from '@/stores/market';
 import { Signal } from '@/types/market';
+import { isSignalActive } from '@/lib/signal-status';
 import {
   Maximize, RefreshCw, PenTool, Trash2, Crosshair, BarChart2,
   TrendingUp, Activity, SlidersHorizontal
@@ -46,13 +47,16 @@ export function LightweightMarketChart({ symbol, initialData }: ChartProps) {
   const userLinesRef = useRef<any[]>([]);
 
   const { activeChartTimeframe, setActiveChartTimeframe, activeIndicators, toggleIndicator } = useWorkspace();
-  const { scannerArray, signals } = useMarketStore();
+  const { scannerArray, signals, sellSignals } = useMarketStore();
   
   // Local state for toolbar
   const [chartType, setChartType] = useState<'candlestick' | 'line' | 'area'>('candlestick');
   const [isDrawMode, setIsDrawMode] = useState(false);
   const [showIndicators, setShowIndicators] = useState(false);
   const [lastUpdateTime, setLastUpdateTime] = useState<Date>(new Date());
+  // Bumped each time the async chart build finishes creating the series, so the
+  // signal-line effect knows seriesRef is populated and can (re)draw.
+  const [chartReady, setChartReady] = useState(0);
 
   const availableTimeframes = ['10s', '1m', '5m', '15m', '30m', '1h', '4h', '8h', '1d', '7d'];
   const indicatorOptions = ['Volume', 'EMA 9', 'EMA 20', 'EMA 50', 'EMA 200'];
@@ -89,10 +93,27 @@ export function LightweightMarketChart({ symbol, initialData }: ChartProps) {
     return Array.from(dataMap.values()).sort((a, b) => (a.time as number) - (b.time as number));
   }, [rawCandles]);
 
-  // Derive relevant signals
+  // Derive relevant signals for this pair. Entry/TP/SL are absolute prices, so
+  // the horizontal price lines are valid on EVERY timeframe — we must NOT
+  // filter by activeChartTimeframe here (that bug hid the drawing on all
+  // timeframes except the signal's primaryTimeframe). Show every active
+  // BUY/SELL signal for the current symbol regardless of chart interval.
   const activeSignals = useMemo(() => {
-     return signals.filter(s => s.symbol === symbol && s.primaryTimeframe === activeChartTimeframe && s.status !== 'CLOSED' && s.status !== 'INVALIDATED');
-  }, [signals, symbol, activeChartTimeframe]);
+     const buy = signals.filter(s => s.symbol === symbol && isSignalActive(s));
+     const sell = sellSignals.filter(s => s.symbol === symbol && isSignalActive(s));
+     const all = [...buy, ...sell];
+     if (all.length === 0) return all;
+     // 1 pair = 1 signal: keep only the single most relevant active signal for
+     // this symbol. Otherwise overlapping Entry/TP/Stop price lines clutter the
+     // chart. Winner = newest createdAt, tie-broken by highest ruleScore.
+     const best = all.reduce((top, sig) => {
+       const t = new Date(sig.createdAt).getTime();
+       const topT = new Date(top.createdAt).getTime();
+       if (t !== topT) return t > topT ? sig : top;
+       return (sig.ruleScore ?? 0) > (top.ruleScore ?? 0) ? sig : top;
+     });
+     return [best];
+  }, [signals, sellSignals, symbol]);
 
   useEffect(() => {
     let disposed = false;
@@ -197,56 +218,12 @@ export function LightweightMarketChart({ symbol, initialData }: ChartProps) {
         ema200Ref.current.setData(calculateEMA(formattedData, 200));
       }
 
-      // Draw Signal Lines
-      if (seriesRef.current && activeSignals.length > 0) {
-        activeSignals.forEach(sig => {
-          const isLong = sig.type.includes('BUY') || sig.type.includes('LONG');
-          
-          signalLinesRef.current.push(
-            seriesRef.current!.createPriceLine({
-              price: sig.entryPrice,
-              color: '#3b82f6',
-              lineWidth: 1,
-              lineStyle: 2, // Dashed
-              title: 'Entry',
-            })
-          );
-          
-          if (sig.targetPrice1) {
-            signalLinesRef.current.push(
-              seriesRef.current!.createPriceLine({
-                price: sig.targetPrice1,
-                color: '#10b981',
-                lineWidth: 1,
-                lineStyle: 2,
-                title: 'TP1',
-              })
-            );
-          }
-          
-          if (sig.targetPrice2) {
-            signalLinesRef.current.push(
-              seriesRef.current!.createPriceLine({
-                price: sig.targetPrice2,
-                color: '#10b981',
-                lineWidth: 1,
-                lineStyle: 2,
-                title: 'TP2',
-              })
-            );
-          }
-          
-          signalLinesRef.current.push(
-            seriesRef.current!.createPriceLine({
-              price: sig.invalidationPrice,
-              color: '#ef4444',
-              lineWidth: 1,
-              lineStyle: 2,
-              title: 'Stop',
-            })
-          );
-        });
-      }
+      // Signal price lines are drawn in a dedicated effect below so that a
+      // signal hitting SL/TP/expiry (or a new signal for this pair) only
+      // redraws the lines — it must NOT tear down and rebuild the whole chart.
+      // Signal series now exists; wake the signal-line effect to draw onto it.
+      signalLinesRef.current = [];
+      setChartReady(v => v + 1);
 
       chart.timeScale().fitContent();
 
@@ -288,7 +265,41 @@ export function LightweightMarketChart({ symbol, initialData }: ChartProps) {
       ema200Ref.current = null;
       signalLinesRef.current = [];
     };
-  }, [symbol, activeChartTimeframe, formattedData, chartType, activeIndicators, isDrawMode, activeSignals]);
+  }, [symbol, activeChartTimeframe, formattedData, chartType, activeIndicators, isDrawMode]);
+
+  // Draw / redraw signal price lines independently of the chart lifecycle.
+  // Re-runs whenever activeSignals changes: a setup hitting SL/TP/expiry drops
+  // out of activeSignals (backend flips isActive) and a new signal for the pair
+  // replaces it. Old lines are always removed first so nothing is left stale.
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (!series) return;
+
+    // Remove previous signal lines.
+    for (const line of signalLinesRef.current) {
+      try { series.removePriceLine(line); } catch { /* series may be gone */ }
+    }
+    signalLinesRef.current = [];
+
+    for (const sig of activeSignals) {
+      signalLinesRef.current.push(series.createPriceLine({
+        price: sig.entryPrice, color: '#3b82f6', lineWidth: 1, lineStyle: 2, title: 'Entry',
+      }));
+      if (sig.targetPrice1) {
+        signalLinesRef.current.push(series.createPriceLine({
+          price: sig.targetPrice1, color: '#10b981', lineWidth: 1, lineStyle: 2, title: 'TP1',
+        }));
+      }
+      if (sig.targetPrice2) {
+        signalLinesRef.current.push(series.createPriceLine({
+          price: sig.targetPrice2, color: '#10b981', lineWidth: 1, lineStyle: 2, title: 'TP2',
+        }));
+      }
+      signalLinesRef.current.push(series.createPriceLine({
+        price: sig.invalidationPrice, color: '#ef4444', lineWidth: 1, lineStyle: 2, title: 'Stop',
+      }));
+    }
+  }, [activeSignals, chartReady]);
 
   // Real-time tick update
   useEffect(() => {

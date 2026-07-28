@@ -7,6 +7,7 @@ import { Search, Star, Zap, Clock, AlertTriangle } from 'lucide-react';
 import { useMarketStore } from '@/stores/market';
 import { formatPrice, formatPercent } from '@/lib/format';
 import { FeatureSnapshot } from '@/types/market';
+import { isSignalActive } from '@/lib/signal-status';
 
 import { useWorkspace } from '@/stores/workspace';
 
@@ -49,7 +50,7 @@ export function VirtualPairList({ activeSymbol }: VirtualPairListProps) {
     } else if (activeTab === 'Watchlist') {
       result = result.filter(p => watchlist.includes(p.symbol));
     } else if (activeTab === 'Active Signals') {
-      const activeSymbols = new Set(signals.filter(s => s.status === 'ACTIVE' || s.status === 'PENDING').map(s => s.symbol));
+      const activeSymbols = new Set(signals.filter(isSignalActive).map(s => s.symbol));
       result = result.filter(p => activeSymbols.has(p.symbol));
     } else if (activeTab === 'Movers') {
       result = result.filter(p => Math.abs(p.change24hPercent) > 5).sort((a, b) => Math.abs(b.change24hPercent) - Math.abs(a.change24hPercent));
@@ -161,8 +162,8 @@ export function VirtualPairList({ activeSymbol }: VirtualPairListProps) {
               const isStale = pair.dataQualityStatus === 'STALE';
               const isFav = watchlist.includes(pair.symbol);
               
-              const activeSignal = signals.find(s => s.symbol === pair.symbol && (s.status === 'ACTIVE' || s.status === 'PENDING'));
-              const signalText = activeSignal ? (activeSignal.type.includes('BUY') || activeSignal.type.includes('LONG') ? 'BUY SETUP' : 'SELL SETUP') : null;
+              const activeSignal = signals.find(s => s.symbol === pair.symbol && isSignalActive(s));
+              const signalText = activeSignal ? (activeSignal.direction === 'BUY' ? 'BUY SETUP' : 'SELL SETUP') : null;
               const signalColor = signalText === 'BUY SETUP' ? 'var(--positive)' : 'var(--negative)';
 
               return (

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { GlobalHeader } from '@/components/terminal/TerminalHeader';
 import { getSignalsFiltered, exportSignalsCSV } from '@/lib/api';
 import { Signal } from '@/types/market';
+import { isSignalActive } from '@/lib/signal-status';
 import { Search, Download, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const PAGE_SIZE = 25;
@@ -75,7 +76,7 @@ export default function SignalsPage() {
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 8, padding: '12px 16px', background: 'var(--panel)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 12 }}>
           <div><span style={{ color: 'var(--muted)' }}>Total:</span> {data.total}</div>
-          <div><span style={{ color: 'var(--muted)' }}>Active:</span> {statusCount('ACTIVE')}</div>
+          <div><span style={{ color: 'var(--muted)' }}>Active:</span> {data.signals.filter(isSignalActive).length}</div>
           <div><span style={{ color: 'var(--muted)' }}>Confirmed:</span> {data.signals.filter(s => s.type === 'BUY_CONFIRMED').length}</div>
           <div><span style={{ color: 'var(--negative)' }}>Invalidated:</span> {statusCount('INVALIDATED')}</div>
           <div><span style={{ color: 'var(--muted)' }}>Expired:</span> {statusCount('EXPIRED')}</div>

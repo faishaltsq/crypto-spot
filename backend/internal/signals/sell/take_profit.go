@@ -63,6 +63,7 @@ func (e *Engine) evaluateTakeProfit(f FeatureSnapshot, buyCtx ActiveBuyContext, 
 	} else {
 		sig.Status = "SETUP"
 	}
+	sig.Enrich()
 	sig.Reasons = append(sig.Reasons, domain.ReasonOverextendedRally, domain.ReasonBuyMomentumExhaustion)
 	if buyCtx.ActiveSignalID != "" {
 		sig.Reasons = append(sig.Reasons, "RELATED_POSITION:"+buyCtx.ActiveSignalID)

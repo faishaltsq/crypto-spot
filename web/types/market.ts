@@ -87,6 +87,13 @@ export interface Signal {
     blocked: string[];
   };
   version: string;
+  // Backend-owned lifecycle contract (see backend/internal/domain/signal_status.go).
+  // The frontend must never re-derive these from status/type strings itself —
+  // always trust what the backend sends.
+  isActive: boolean;
+  direction: "BUY" | "SELL";
+  strategy: "ENTRY_BUY" | "PROTECTIVE_SELL" | "TAKE_PROFIT" | "EXIT_WARNING" | "AVOID_ENTRY";
+  lifecycleGroup: "SETUP" | "CONFIRMED" | "ACTIVE" | "BLOCKED" | "INVALIDATED" | "EXPIRED" | "CLOSED" | "WATCH";
   outcome?: {
     signalId: string;
     symbol: string;

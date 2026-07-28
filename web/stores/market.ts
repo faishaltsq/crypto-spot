@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { FeatureSnapshot, Signal, SellSignalDetail } from '@/types/market';
 import { getScanner, getSignals, sellApi } from '@/lib/api';
+import { normalizeSignal, normalizeSignals } from '@/lib/signal-normalize';
+import { isSignalActive } from '@/lib/signal-status';
 
 interface MarketState {
   scanner: Record<string, FeatureSnapshot>;
@@ -57,7 +59,10 @@ export const useMarketStore = create<MarketState>((set, get) => ({
         getSignals(100),
         sellApi.listSignals(undefined, 100).then(res => res.signals)
       ]);
-      set({ signals: globalSignals ?? [], sellSignals: globalSellSignals ?? [] });
+      set({
+        signals: normalizeSignals(globalSignals),
+        sellSignals: normalizeSignals(globalSellSignals) as SellSignalDetail[],
+      });
     } catch (error) {
       console.error('Failed to fetch global signals:', error);
     }
@@ -74,37 +79,21 @@ export const useMarketStore = create<MarketState>((set, get) => ({
           flushTimeout = null;
 
           const newScanner = { ...state.scanner, ...pairsToApply };
-          
-          // Auto-evaluate active signals based on new price
-          let signalsUpdated = false;
-          const newSignals = state.signals.map(s => {
-            if (s.status === 'CLOSED' || s.status === 'INVALIDATED' || !pairsToApply[s.symbol]) {
-              return s;
-            }
-            
-            const currentPair = pairsToApply[s.symbol];
-            const isLong = s.type.includes('BUY') || s.type.includes('LONG');
-            let newStatus = s.status;
-            
-            if (isLong) {
-              if (currentPair.price >= s.targetPrice1) newStatus = 'CLOSED';
-              else if (currentPair.price <= s.invalidationPrice) newStatus = 'INVALIDATED';
-            } else {
-              if (currentPair.price <= s.targetPrice1) newStatus = 'CLOSED';
-              else if (currentPair.price >= s.invalidationPrice) newStatus = 'INVALIDATED';
-            }
-            
-            if (newStatus !== s.status) {
-              signalsUpdated = true;
-              return { ...s, status: newStatus };
-            }
-            return s;
-          });
+
+          // NOTE: signal lifecycle transitions (target hit / invalidation /
+          // expiry) are decided exclusively by the backend (see
+          // backend/internal/domain/signal_status.go + outcomeLoop /
+          // sell.OutcomeEvaluator in backend/cmd/server/main.go), which
+          // broadcasts a `signal.updated` event over the same WebSocket
+          // whenever a signal's status actually changes. The frontend must
+          // never guess a status transition from a price tick — doing so
+          // risks disagreeing with the backend's persisted status and
+          // showing a signal as closed/invalidated before the backend
+          // agrees, or vice versa.
 
           return {
             scanner: newScanner,
             scannerArray: Object.values(newScanner),
-            ...(signalsUpdated ? { signals: newSignals } : {})
           };
         });
       }, FLUSH_INTERVAL);
@@ -112,26 +101,28 @@ export const useMarketStore = create<MarketState>((set, get) => ({
   },
 
   updateSignal: (signal: Signal) => {
+    const normalized = normalizeSignal(signal);
     set((state) => {
-      const existingIdx = state.signals.findIndex(s => s.id === signal.id);
+      const existingIdx = state.signals.findIndex(s => s.id === normalized.id);
       if (existingIdx >= 0) {
         const newSignals = [...state.signals];
-        newSignals[existingIdx] = signal;
+        newSignals[existingIdx] = normalized;
         return { signals: newSignals };
       }
-      return { signals: [signal, ...state.signals].slice(0, 100) };
+      return { signals: [normalized, ...state.signals].slice(0, 100) };
     });
   },
 
   updateSellSignal: (signal: SellSignalDetail) => {
+    const normalized = normalizeSignal(signal) as SellSignalDetail;
     set((state) => {
-      const existingIdx = state.sellSignals.findIndex(s => s.id === signal.id);
+      const existingIdx = state.sellSignals.findIndex(s => s.id === normalized.id);
       if (existingIdx >= 0) {
         const newSignals = [...state.sellSignals];
-        newSignals[existingIdx] = signal;
+        newSignals[existingIdx] = normalized;
         return { sellSignals: newSignals };
       }
-      return { sellSignals: [signal, ...state.sellSignals].slice(0, 100) };
+      return { sellSignals: [normalized, ...state.sellSignals].slice(0, 100) };
     });
   }
 }));

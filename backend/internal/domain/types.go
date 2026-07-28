@@ -333,6 +333,28 @@ type Signal struct {
 	CreatedAt         time.Time         `json:"createdAt"`
 	ExpiresAt         time.Time         `json:"expiresAt"`
 	Simulations       []PaperSimulation `json:"simulations,omitempty"`
+
+	// Backend-owned lifecycle contract (populated by Enrich, never set
+	// directly by callers). Frontend must treat these as the sole source
+	// of truth for active/direction/lifecycle logic instead of pattern
+	// matching on Status/Type strings itself.
+	IsActive       bool   `json:"isActive"`
+	Direction      string `json:"direction"`
+	Strategy       string `json:"strategy"`
+	LifecycleGroup string `json:"lifecycleGroup"`
+}
+
+// Enrich populates the backend-owned lifecycle contract fields
+// (IsActive/Direction/Strategy/LifecycleGroup) from Status/Type. Must be
+// called on every domain.Signal before it is serialized to a REST
+// response or WebSocket broadcast — scanSignal, scanSellSignal, and every
+// signal-construction path (engine.go, sell package) call this so no
+// response path can accidentally skip it.
+func (s *Signal) Enrich() {
+	s.IsActive = SignalIsActiveAt(s.Status, s.ExpiresAt, time.Now())
+	s.Direction = SignalDirection(s.Type)
+	s.Strategy = SignalStrategy(s.Type)
+	s.LifecycleGroup = SignalLifecycleGroup(s.Status)
 }
 
 type PaperSimulation struct {

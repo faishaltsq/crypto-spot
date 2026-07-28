@@ -277,6 +277,7 @@ func (e *Engine) Evaluate(ctx context.Context, feature domain.FeatureSnapshot) (
 		CreatedAt:         now,
 		ExpiresAt:         now.Add(2 * time.Hour),
 	}
+	signal.Enrich()
 
 	if status != "BLOCKED" {
 		e.mu.Lock()

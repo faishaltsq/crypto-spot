@@ -1,5 +1,33 @@
 # Dynamic Signal Threshold Tasks
 
+## Unified BUY/SELL Signal Lifecycle Contract 2026-07-28
+
+- [ ] Backend-owned `isActive`/`direction`/`strategy`/`lifecycleGroup` contract on every signal response + unified `/api/v1/signals/active` endpoint + realtime `signal.updated` lifecycle broadcasts; frontend unified signal store/selectors consuming that contract instead of re-deriving status client-side.
+  - Owner: `opencode-signal-lifecycle-unify`
+  - Started (UTC): `2026-07-28T06:30:00Z`
+  - Files: `backend/internal/domain/types.go` (additive struct fields + `Enrich()` method only), `backend/internal/domain/signal_status.go` (new file), `backend/internal/domain/signal_status_test.go` (new file), `backend/internal/storage/postgres.go` (additive `Enrich()` call + `UpdateOutcome` return-value change), `backend/internal/storage/sell.go` (additive `ListActiveSignals` + `Enrich()` call), `backend/internal/signals/engine.go` (additive `Enrich()` call), `backend/internal/signals/sell/protective_sell.go`/`take_profit.go`/`outcome.go` (additive `Enrich()` calls + broadcast wiring), `backend/internal/httpapi/server.go` (additive route registration only, one line), `backend/internal/httpapi/sell.go` (additive handler), `backend/cmd/server/main.go` (wired previously-orphaned `outcomeLoop` goroutine + hub param), plus new `web/stores/signals.ts`, `web/lib/signal-status.ts`, `web/lib/signal-normalize.ts`.
+  - Verify: `cd backend; go build ./...; go test ./...` and `cd web; npm run build`
+  - State: `done`
+  - Completed (UTC): `2026-07-28T07:30:00Z`
+  - Result: Added `domain.Signal.Enrich()` populating `isActive`/`direction`/`strategy`/`lifecycleGroup` on every BUY/SELL signal row (called from `scanSignal`, `scanSellSignal`, `engine.go`, `sell/protective_sell.go`, `sell/take_profit.go`). Added `GET /api/v1/signals/active` (unified BUY+SELL, filterable by direction/strategy/symbol/timeframe). Wired the previously-orphaned `outcomeLoop` goroutine into `main()` and made both it and `sell.OutcomeEvaluator` broadcast `signal.updated` over the WebSocket hub whenever a signal transitions to a terminal state, so clients no longer have to poll to learn a signal left the active set. Frontend: added `lib/signal-status.ts` (single `isSignalActive`/`signalDirection`/`signalLifecycleGroup` helpers) and `lib/signal-normalize.ts` (defensive fallback for stale payloads), wired `signal.updated` in `GlobalRealtime.tsx`, removed the client-side price-based status-mutation logic from `stores/market.ts` (backend is now sole source of truth), and replaced all `status === 'ACTIVE'`/`.includes('BUY')` string-matching in `RightSignalPanel.tsx`, `PairDiagnostic.tsx`, `VirtualPairList.tsx`, `LightweightMarketChart.tsx`, and `app/signals/page.tsx` with the centralized helpers.
+  - Verify: `cd backend; go build ./...` and `go test ./...` passed (added `internal/domain/signal_status_test.go`). `cd web; npx tsc --noEmit` and `npm run build` passed.
+  - Handoff: `opencode-sell-engine`'s claimed files (`main.go`, `domain/types.go`, `server.go`, `realtime/hub.go`) had no active `.agent-locks` entry and no conflicting diff at start of this task; all edits here were strictly additive. If that task resumes, its SELL scoring/threshold logic is untouched — only new `Enrich()` calls and one new route line were added.
+
+## SELL Signal Logic Fix (bearish signals never surface) 2026-07-28
+
+- [ ] Fix SELL signal logic so PROTECTIVE_SELL surfaces in bearish markets: (1) priority switch falls back to PROTECTIVE_SELL when AVOID_ENTRY doesn't fire, (2) trend gate sensitive to low-TF bearish + strong flow when HTF hasn't crossed over, (3) RuleScore renormalizes weights when wall data absent so neutral 50 doesn't drag score, (4) lower over-strict config defaults toward BUY parity.
+  - Owner: `opencode-sell-signal-logic-fix`
+  - Started (UTC): `2026-07-28T13:02:09Z`
+  - Files: `backend/internal/signals/sell/engine.go`, `backend/internal/signals/sell/protective_sell.go`, `backend/internal/signals/sell/score.go`, `backend/internal/config/sell_load.go`
+  - Verify: `cd backend; go build ./...; go test ./internal/signals/sell/...`
+  - State: `done`
+  - Completed (UTC): `2026-07-28T13:10:00Z`
+  - Note: `opencode-sell-engine` claim above has NO active `.agent-locks/*.lock` entry and no heartbeat; per AI_COORDINATION.md `.agent-locks/*.lock` is source of truth for file ownership. Supervisor (user) directed this fix. Only the four listed SELL files touched.
+  - Result: (1) `engine.go` — priority switch no longer swallows SELL evaluation: when `HasCandidateSignal` and AVOID_ENTRY gates don't trip, and when `HasActivePosition` but neither EXIT_WARNING nor TAKE_PROFIT fires, both now fall back to `evaluateProtectiveSell` so bearish pairs still surface instead of vanishing behind a low-bar BUY_SETUP. (2) `protective_sell.go` — extracted `bearishTrendConfirmed`: primary weighted-alignment gate kept, plus a low-timeframe override (5m/15m bearish + AggressiveSellRatio>=0.60 + negative CVD slope + not counter-trended) so fresh breakdowns surface before HTF EMA crossovers catch up. (3) `score.go` — RuleScore renormalizes trend/flow/structure weights when NO bid-wall event is observed, instead of feeding a hardcoded neutral 50 into the 15% wall slice that dragged totals below SetupScore. (4) `sell_load.go` — `SELL_MIN_DATA_QUALITY` 80->75 (BUY parity), `SELL_MIN_TIMEFRAME_ALIGNMENT` 60->40.
+  - Verify: `go build ./...` and full `go test ./...` passed.
+  - Tests added (`engine_test.go`): `TestProtectiveSellFallbackWhenBuyCandidateButNoAvoidEntry`, `TestBearishTrendConfirmedLowTFOverride`, `TestRuleScoreRenormalizesWhenNoWallEvent` — regression coverage for all three logic changes.
+  - Not changed (deliberate): SampleStatus hard gate (`SELL_MIN_TRADE_COUNT`/`NOTIONAL`) left as-is — it is a genuine liquidity precondition; lowering it risks false SELL signals on illiquid altcoins. Flag for supervisor if low-liquidity SELL coverage is desired.
+
 ## SELL Signal Engine 2026-07-28
 
 - [ ] Build SPOT-only SELL signal system (tradeflow/structure/spoof features, SELL engine, dynamic threshold, invalidation, lifecycle, outcome, API, WebSocket, Terminal UI, Pair Diagnostic, Performance, notifications, tests).

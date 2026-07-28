@@ -112,8 +112,13 @@ func main() {
 	outcomeSvc := outcome.NewService(repo, marketStore, simulator)
 	go outcomeSvc.Run(ctx)
 
-	sellOutcomeSvc := sell.NewOutcomeEvaluator(repo, marketStore)
+	sellOutcomeSvc := sell.NewOutcomeEvaluator(repo, marketStore, hub)
 	go sellOutcomeSvc.Run(ctx)
+
+	// BUY lifecycle transition loop (target hit / invalidation hit / expiry).
+	// Broadcasts signal.updated so the frontend never has to poll to learn
+	// that a BUY signal left the active set.
+	go outcomeLoop(ctx, marketStore, repo, hub)
 
 	// Universe service
 	universeRepo := universe.NewRepository(repo.Pool())
@@ -358,6 +363,7 @@ func outcomeLoop(
 	ctx context.Context,
 	marketStore *market.Store,
 	repo *storage.Repository,
+	hub *realtime.Hub,
 ) {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
@@ -374,9 +380,20 @@ func outcomeLoop(
 			if !ok || snapshot.LastPrice <= 0 {
 				continue
 			}
-			if err := repo.UpdateOutcome(ctx, item, snapshot.LastPrice, now); err != nil {
+			newStatus, err := repo.UpdateOutcome(ctx, item, snapshot.LastPrice, now)
+			if err != nil {
 				log.Printf("update outcome %s failed: %v", item.ID, err)
+				continue
 			}
+			if newStatus == "" {
+				continue
+			}
+			updated, err := repo.GetSignal(ctx, item.ID)
+			if err != nil {
+				log.Printf("reload signal %s after lifecycle update failed: %v", item.ID, err)
+				continue
+			}
+			hub.Broadcast("signal.updated", updated)
 		}
 	}
 

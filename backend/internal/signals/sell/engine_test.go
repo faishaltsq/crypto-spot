@@ -124,16 +124,42 @@ func TestEngineEvaluateBlocksOnLowDataQuality(t *testing.T) {
 	}
 }
 
-func TestEngineEvaluateAvoidEntryWhenBuyCandidateExists(t *testing.T) {
+// TestEngineEvaluateProtectiveSellPreemptsAvoidEntry verifies that when a BUY
+// candidate exists AND the pair is strongly bearish, the full PROTECTIVE_SELL
+// setup (with its own entry/target/invalidation levels) takes priority over
+// the advisory AVOID_ENTRY.
+func TestEngineEvaluateProtectiveSellPreemptsAvoidEntry(t *testing.T) {
 	engine := New(testConfig())
 	f := bearishSnapshot("ETH_USDT")
 
 	sig, created := engine.Evaluate(f, ActiveBuyContext{HasCandidateSignal: true})
 	if !created {
-		t.Fatal("expected AVOID_ENTRY signal when a BUY candidate exists alongside bearish evidence")
+		t.Fatal("expected a SELL signal when a BUY candidate exists alongside strong bearish evidence")
+	}
+	if sig.Type != domain.SellSignalSetup && sig.Type != domain.SellSignalConfirmed {
+		t.Fatalf("expected PROTECTIVE_SELL (SELL_SETUP/SELL_CONFIRMED) to preempt AVOID_ENTRY, got %s", sig.Type)
+	}
+}
+
+// TestEngineEvaluateAvoidEntryFallback verifies AVOID_ENTRY still fires as the
+// fallback when a BUY candidate exists and bearish evidence is enough to warn
+// against entry but NOT strong enough to stand as a full PROTECTIVE_SELL setup.
+func TestEngineEvaluateAvoidEntryFallback(t *testing.T) {
+	engine := New(testConfig())
+	f := bearishSnapshot("ETH_USDT")
+	// Weaken the trend so PROTECTIVE_SELL's bearishTrendConfirmed gate fails
+	// (alignment above -0.30 threshold and no low-TF override), while keeping
+	// AggressiveSellRatio >= 0.55 so AVOID_ENTRY's conviction gate passes.
+	f.TrendAlignment = -0.10
+	f.TrendByTimeframe = map[string]string{"5m": "neutral", "15m": "neutral"}
+	f.SellRuleScore = RuleScore(f)
+
+	sig, created := engine.Evaluate(f, ActiveBuyContext{HasCandidateSignal: true})
+	if !created {
+		t.Fatal("expected AVOID_ENTRY fallback when bearish evidence warns against a BUY candidate")
 	}
 	if sig.Type != domain.AvoidEntrySignal {
-		t.Fatalf("expected AVOID_ENTRY, got %s", sig.Type)
+		t.Fatalf("expected AVOID_ENTRY fallback, got %s", sig.Type)
 	}
 }
 
@@ -207,5 +233,65 @@ func TestCheckInvalidationNoneWhenThesisHolds(t *testing.T) {
 	result := CheckInvalidation(f)
 	if result.Invalidated {
 		t.Fatalf("expected no invalidation while bearish thesis holds, got %+v", result)
+	}
+}
+
+// TestProtectiveSellFallbackWhenBuyCandidateButNoAvoidEntry verifies the
+// engine.go priority-switch fix: when a BUY candidate exists but the
+// AVOID_ENTRY-specific gates don't trip, the SELL evaluation must fall back to
+// PROTECTIVE_SELL instead of vanishing.
+func TestProtectiveSellFallbackWhenBuyCandidateButNoAvoidEntry(t *testing.T) {
+	engine := New(testConfig())
+	f := bearishSnapshot("SOL_USDT")
+	// Kill the AVOID_ENTRY-specific conviction gates (avoid_entry.go:18) while
+	// keeping the pair strongly bearish overall.
+	f.TradeFlow.AggressiveSellRatio = 0.40
+	f.Structure.SupportBroken = false
+
+	sig, created := engine.Evaluate(f, ActiveBuyContext{HasCandidateSignal: true})
+	if !created {
+		t.Fatal("expected PROTECTIVE_SELL fallback when BUY candidate exists but AVOID_ENTRY gates don't trip")
+	}
+	if sig.Type != domain.SellSignalSetup && sig.Type != domain.SellSignalConfirmed {
+		t.Fatalf("expected SELL_SETUP/SELL_CONFIRMED fallback, got %s", sig.Type)
+	}
+}
+
+// TestBearishTrendConfirmedLowTFOverride verifies the protective_sell.go trend
+// gate: a fresh breakdown (fast timeframes bearish + strong sell flow) is
+// confirmed even when the high-timeframe-weighted TrendAlignment hasn't caught
+// up past the -minAlignment threshold.
+func TestBearishTrendConfirmedLowTFOverride(t *testing.T) {
+	f := bearishSnapshot("BTC_USDT")
+	// HTF alignment lags (above the -0.40 threshold) but still non-bullish.
+	f.TrendAlignment = -0.10
+	f.TrendByTimeframe = map[string]string{"5m": "bearish", "15m": "bearish", "1d": "neutral"}
+	f.TradeFlow.AggressiveSellRatio = 0.70
+	f.TradeFlow.NegativeCVDSlope = -5
+
+	if !bearishTrendConfirmed(f, 40) {
+		t.Fatal("expected low-TF override to confirm bearish trend when HTF alignment lags")
+	}
+
+	// Counter-trended by a bullish HTF: override must NOT fire.
+	f.TrendAlignment = 0.30
+	if bearishTrendConfirmed(f, 40) {
+		t.Fatal("low-TF override must not fire when higher timeframe is clearly bullish")
+	}
+}
+
+// TestRuleScoreRenormalizesWhenNoWallEvent verifies score.go no longer feeds a
+// hardcoded neutral 50 into the wall slice when no bid-wall event is observed:
+// a strongly bearish pair with absent wall data must not be dragged below
+// SetupScore by the missing component.
+func TestRuleScoreRenormalizesWhenNoWallEvent(t *testing.T) {
+	f := bearishSnapshot("BTC_USDT")
+	// No wall event at all.
+	f.Walls.BidWallFailed = false
+	f.Walls.BidWallDetected = false
+
+	score := RuleScore(f)
+	if score < testConfig().SetupScore {
+		t.Fatalf("strongly bearish pair with absent wall data should clear SetupScore, got %.1f", score)
 	}
 }

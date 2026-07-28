@@ -623,6 +623,7 @@ func scanSignal(row rowScanner) (domain.Signal, error) {
 	if blockedReasonsJSON != nil {
 		_ = json.Unmarshal(blockedReasonsJSON, &signal.BlockedReasons)
 	}
+	signal.Enrich()
 	return signal, nil
 }
 
@@ -659,14 +660,21 @@ func (r *Repository) ListOutcomeCandidates(ctx context.Context) ([]domain.Outcom
 	return items, rows.Err()
 }
 
+// UpdateOutcome persists the latest return metrics for a BUY signal and,
+// if the signal just crossed into a terminal lifecycle state (target hit,
+// invalidation hit, or expiry), updates its status. Returns the new
+// terminal status ("" if the signal is still active) so the caller can
+// broadcast a realtime lifecycle event — callers must never let a BUY
+// signal transition out of "active" silently, or the Terminal/Signals
+// page will disagree on active counts.
 func (r *Repository) UpdateOutcome(
 	ctx context.Context,
 	item domain.OutcomeCandidate,
 	currentPrice float64,
 	now time.Time,
-) error {
+) (string, error) {
 	if item.EntryPrice <= 0 || currentPrice <= 0 {
-		return nil
+		return "", nil
 	}
 	returnValue := (currentPrice - item.EntryPrice) / item.EntryPrice
 	age := now.Sub(item.CreatedAt)
@@ -731,7 +739,7 @@ func (r *Repository) UpdateOutcome(
 		now,
 	)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	if targetHit || invalidationHit || now.After(item.ExpiresAt) || age >= 4*time.Hour {
@@ -741,13 +749,19 @@ func (r *Repository) UpdateOutcome(
 		} else if now.After(item.ExpiresAt) && !targetHit {
 			status = "EXPIRED"
 		}
-		_, err = r.pool.Exec(ctx, `
+		tag, err := r.pool.Exec(ctx, `
 			UPDATE signals
 			SET status = $2, closed_at = $3
 			WHERE id = $1::uuid AND closed_at IS NULL
 		`, item.ID, status, now)
+		if err != nil {
+			return "", err
+		}
+		if tag.RowsAffected() > 0 {
+			return status, nil
+		}
 	}
-	return err
+	return "", nil
 }
 
 func (r *Repository) PerformanceSummary(ctx context.Context) (domain.PerformanceSummary, error) {
