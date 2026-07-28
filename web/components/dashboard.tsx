@@ -129,6 +129,11 @@ export function Dashboard() {
       setSignals((current) => [signal, ...current].slice(0, 100));
       void showSignalNotification(signal, notificationMinScore);
     }
+    if (message.event === "sell.signal.created") {
+      const signal = message.data as Signal;
+      setSignals((current) => [signal, ...current].slice(0, 100));
+      void showSignalNotification(signal, notificationMinScore);
+    }
   }, [notificationMinScore]);
 
   useRealtime({

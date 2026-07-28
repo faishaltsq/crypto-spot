@@ -58,8 +58,25 @@ func (e *Engine) Evaluate(f FeatureSnapshot, buyCtx ActiveBuyContext) (*domain.S
 		if sig, ok := e.evaluateExitWarning(f, ruleScore, buyCtx, shouldRateLimit); ok {
 			return sig, true
 		}
-		return e.evaluateTakeProfit(f, buyCtx, shouldRateLimit)
+		if sig, ok := e.evaluateTakeProfit(f, buyCtx, shouldRateLimit); ok {
+			return sig, true
+		}
+		// Position held but neither an exit warning nor a take-profit fired:
+		// still surface the pair-level informational PROTECTIVE_SELL if the
+		// bearish thesis is strong, so a holder isn't left blind to a broad
+		// bearish move just because their specific position gates didn't trip.
+		return e.evaluateProtectiveSell(f, ruleScore, thresholdResult, shouldRateLimit)
 	case buyCtx.HasCandidateSignal:
+		// A forming BUY candidate exists on this pair. If the pair is genuinely
+		// bearish enough to form a real PROTECTIVE_SELL setup (score >=
+		// SetupScore, bearish trend confirmed), that full SELL signal — with
+		// its own entry/target/invalidation levels — takes priority over the
+		// advisory AVOID_ENTRY. AVOID_ENTRY is only a fallback for the weaker
+		// case where bearish evidence is enough to warn against a BUY entry but
+		// not enough to stand on its own as a tradeable SELL setup.
+		if sig, ok := e.evaluateProtectiveSell(f, ruleScore, thresholdResult, shouldRateLimit); ok {
+			return sig, true
+		}
 		return e.evaluateAvoidEntry(f, ruleScore, shouldRateLimit)
 	default:
 		return e.evaluateProtectiveSell(f, ruleScore, thresholdResult, shouldRateLimit)

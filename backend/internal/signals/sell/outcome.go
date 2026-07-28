@@ -10,6 +10,14 @@ import (
 	"github.com/example/crypto-spot-signal/internal/storage"
 )
 
+// Broadcaster is the narrow realtime dependency the SELL outcome evaluator
+// needs to notify clients of lifecycle transitions. Satisfied by
+// *realtime.Hub; kept as an interface here so this package never imports
+// the realtime package's transport concerns.
+type Broadcaster interface {
+	Broadcast(event string, data interface{})
+}
+
 // OutcomeStorage is the narrow persistence dependency the SELL outcome
 // evaluator needs, mirroring outcome.Storage's shape so both evaluators
 // follow the same interface-segregation pattern.
@@ -17,25 +25,31 @@ type OutcomeStorage interface {
 	ActiveSellCandidates(ctx context.Context) ([]storage.SellCandidate, error)
 	SaveSellSignalOutcome(ctx context.Context, o storage.SellSignalOutcome) error
 	CloseSellSignal(ctx context.Context, signalID, status, invalidationReason string, closedAt time.Time) error
+	GetSellSignal(ctx context.Context, id string) (storage.SellSignalDetail, error)
 }
 
 // OutcomeEvaluator measures whether SELL-family signals were directionally
 // correct: did price actually decline (protective sell) after the signal,
 // rather than measuring short-position profit. It reuses outcome.PriceTracker
 // for High/Low excursion tracking since that logic is direction-agnostic.
+// It also broadcasts signal.updated whenever a SELL-family signal leaves
+// the active set (INVALIDATED/CLOSED), so the Terminal never has a SELL
+// signal "stuck" in Active Signals after it has actually resolved.
 type OutcomeEvaluator struct {
 	storage      OutcomeStorage
 	marketStore  *market.Store
 	tracker      *outcome.PriceTracker
 	pollInterval time.Duration
+	hub          Broadcaster
 }
 
-func NewOutcomeEvaluator(storage OutcomeStorage, marketStore *market.Store) *OutcomeEvaluator {
+func NewOutcomeEvaluator(storage OutcomeStorage, marketStore *market.Store, hub Broadcaster) *OutcomeEvaluator {
 	return &OutcomeEvaluator{
 		storage:      storage,
 		marketStore:  marketStore,
 		tracker:      outcome.NewPriceTracker(),
 		pollInterval: time.Minute,
+		hub:          hub,
 	}
 }
 
@@ -109,8 +123,15 @@ func (e *OutcomeEvaluator) evaluate(ctx context.Context) {
 
 		if result.Invalidated {
 			status := "INVALIDATED"
-			if err := e.storage.CloseSellSignal(ctx, c.SignalID, status, "SUPPORT_RECLAIMED", now); err != nil {
+			// Support reclaim or SL breach
+			reason := "SUPPORT_RECLAIMED"
+			if result.Invalidated && result.DirectionalReturn > 0 {
+				reason = "STOP_LOSS_BREACHED"
+			}
+			if err := e.storage.CloseSellSignal(ctx, c.SignalID, status, reason, now); err != nil {
 				log.Printf("[sell-outcome] failed to close signal %s: %v", c.SignalID, err)
+			} else {
+				e.broadcastUpdate(ctx, c.SignalID)
 			}
 			e.tracker.RemoveCandidate(c.SignalID)
 			continue
@@ -120,8 +141,26 @@ func (e *OutcomeEvaluator) evaluate(ctx context.Context) {
 		if age >= 24*time.Hour {
 			if err := e.storage.CloseSellSignal(ctx, c.SignalID, "CLOSED", "EXPIRED", now); err != nil {
 				log.Printf("[sell-outcome] failed to close expired signal %s: %v", c.SignalID, err)
+			} else {
+				e.broadcastUpdate(ctx, c.SignalID)
 			}
 			e.tracker.RemoveCandidate(c.SignalID)
 		}
 	}
+}
+
+// broadcastUpdate reloads the SELL signal (fully enriched via
+// domain.Signal.Enrich in scanSellSignal) and broadcasts signal.updated so
+// every connected client removes it from Active Signals immediately,
+// without waiting for the next REST poll.
+func (e *OutcomeEvaluator) broadcastUpdate(ctx context.Context, signalID string) {
+	if e.hub == nil {
+		return
+	}
+	updated, err := e.storage.GetSellSignal(ctx, signalID)
+	if err != nil {
+		log.Printf("[sell-outcome] reload signal %s after lifecycle update failed: %v", signalID, err)
+		return
+	}
+	e.hub.Broadcast("signal.updated", updated)
 }

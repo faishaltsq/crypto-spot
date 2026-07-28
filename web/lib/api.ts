@@ -76,6 +76,40 @@ export function getSignalById(id: string): Promise<Signal> {
   return request<Signal>(`/api/v1/signals/${id}`);
 }
 
+export interface ActiveSignalFilterParams {
+  direction?: "BUY" | "SELL";
+  strategy?: string;
+  symbol?: string;
+  timeframe?: string;
+  limit?: number;
+}
+
+export interface ActiveSignalsResponse {
+  signals: SellSignalDetail[];
+  total: number;
+  snapshot_at: string;
+  next_cursor: string | null;
+}
+
+/**
+ * Fetches the unified BUY+SELL active-signal snapshot from
+ * GET /api/v1/signals/active. This is the single source of truth for
+ * "what's active right now" — every "active" surface in the app
+ * (Terminal, Signals page, pair list badges) should be able to source
+ * from this endpoint or from the same isActive contract carried by
+ * realtime signal.updated/created events.
+ */
+export function getActiveSignals(params: ActiveSignalFilterParams = {}): Promise<ActiveSignalsResponse> {
+  const qs = new URLSearchParams();
+  if (params.direction) qs.set('direction', params.direction);
+  if (params.strategy) qs.set('strategy', params.strategy);
+  if (params.symbol) qs.set('symbol', params.symbol);
+  if (params.timeframe) qs.set('timeframe', params.timeframe);
+  if (params.limit) qs.set('limit', String(params.limit));
+  const suffix = qs.size ? `?${qs.toString()}` : '';
+  return request<ActiveSignalsResponse>(`/api/v1/signals/active${suffix}`);
+}
+
 export function getPair(symbol: string): Promise<MarketPairResponse> {
   return request<MarketPairResponse>(`/api/v1/pairs/${encodeURIComponent(symbol)}`);
 }

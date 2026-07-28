@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { FeatureSnapshot, Signal, SellSignalDetail } from '@/types/market';
 import { useMarketStore } from '@/stores/market';
+import { isSignalActive } from '@/lib/signal-status';
 import { Activity, Database, Zap, Target, BookOpen, Layers, ShieldCheck, Bot, BarChart } from 'lucide-react';
 
 interface PairDiagnosticProps {
@@ -15,8 +16,8 @@ export function PairDiagnostic({ symbol, diagnosticData }: PairDiagnosticProps) 
   const storeSignals = useMarketStore(state => state.signals);
   const storeSellSignals = useMarketStore(state => state.sellSignals);
   
-  const activeSignal = storeSignals.find(s => s.symbol === symbol && s.status !== 'CLOSED' && s.status !== 'INVALIDATED');
-  const activeSellSignal = storeSellSignals.find(s => s.symbol === symbol && s.status !== 'CLOSED' && s.status !== 'INVALIDATED');
+  const activeSignal = storeSignals.find(s => s.symbol === symbol && isSignalActive(s));
+  const activeSellSignal = storeSellSignals.find(s => s.symbol === symbol && isSignalActive(s));
 
   const tabs = [
     { id: 'Overview', icon: <Activity size={14}/> },
@@ -32,7 +33,11 @@ export function PairDiagnostic({ symbol, diagnosticData }: PairDiagnosticProps) 
     tabs.splice(5, 0, { id: 'Signal Setup', icon: <Target size={14}/> });
     tabs.splice(6, 0, { id: 'Evidence', icon: <ShieldCheck size={14}/> });
   } else if (activeSellSignal) {
-    tabs.splice(5, 0, { id: 'Sell Evidence', icon: <BarChart size={14}/> });
+    // SELL signals carry their own entry/target/invalidation levels (see
+    // backend sell/protective_sell.go priceLevels), so give them the same
+    // "Setup" tab treatment as BUY, plus the SELL-specific evidence tab.
+    tabs.splice(5, 0, { id: 'Sell Setup', icon: <Target size={14}/> });
+    tabs.splice(6, 0, { id: 'Sell Evidence', icon: <BarChart size={14}/> });
   }
 
   if (!diagnosticData) {
@@ -64,8 +69,75 @@ export function PairDiagnostic({ symbol, diagnosticData }: PairDiagnosticProps) 
         {activeTab === 'AI Review' && <AIReviewTab data={diagnosticData} />}
         {activeTab === 'Signal Setup' && activeSignal && <SignalSetupTab signal={activeSignal} />}
         {activeTab === 'Evidence' && activeSignal && <SignalEvidenceTab signal={activeSignal} />}
+        {activeTab === 'Sell Setup' && activeSellSignal && <SellSetupTab signal={activeSellSignal} />}
         {activeTab === 'Sell Evidence' && activeSellSignal && <SellEvidenceTab signal={activeSellSignal} />}
       </div>
+    </div>
+  );
+}
+
+function SellSetupTab({ signal }: { signal: SellSignalDetail }) {
+  const fmt = (p?: number) => {
+    if (p == null) return 'N/A';
+    return p < 1 ? p.toPrecision(4) : p.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+  const copy = (text?: number) => { if (text != null) navigator.clipboard.writeText(String(text)); };
+
+  // For a SELL setup the targets are DOWNSIDE (take-profit as price falls) and
+  // invalidation is ABOVE entry (thesis breaks if price reclaims upward).
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <span className="metric-value negativeText" style={{ fontSize: 15, fontWeight: 700 }}>
+          {signal.type.replace(/_/g, ' ')}
+        </span>
+        <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+          {signal.primaryTimeframe} · score {signal.sellScore != null ? signal.sellScore.toFixed(0) : (signal.ruleScore?.toFixed(0) ?? '-')}
+        </span>
+      </div>
+
+      <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 150, background: 'rgba(59,130,246,0.05)', padding: '0.75rem', borderRadius: 6, border: '1px solid rgba(59,130,246,0.2)' }}>
+          <div style={{ fontSize: 11, color: '#60a5fa', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Entry Reference</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 16, fontWeight: 'bold' }}>${fmt(signal.entryPrice)}</span>
+            <button onClick={() => copy(signal.entryPrice)} style={{ background: 'transparent', border: '1px solid #3b82f6', color: '#60a5fa', fontSize: 10, padding: '2px 6px', borderRadius: 4, cursor: 'pointer' }}>COPY</button>
+          </div>
+        </div>
+
+        <div style={{ flex: 1, minWidth: 150, background: 'rgba(16,185,129,0.05)', padding: '0.75rem', borderRadius: 6, border: '1px solid rgba(16,185,129,0.2)' }}>
+          <div style={{ fontSize: 11, color: '#34d399', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Take Profit 1 (downside)</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 16, fontWeight: 'bold' }}>${fmt(signal.targetPrice1)}</span>
+            <button onClick={() => copy(signal.targetPrice1)} style={{ background: 'transparent', border: '1px solid #10b981', color: '#34d399', fontSize: 10, padding: '2px 6px', borderRadius: 4, cursor: 'pointer' }}>COPY</button>
+          </div>
+        </div>
+
+        {signal.targetPrice2 ? (
+          <div style={{ flex: 1, minWidth: 150, background: 'rgba(16,185,129,0.05)', padding: '0.75rem', borderRadius: 6, border: '1px solid rgba(16,185,129,0.2)' }}>
+            <div style={{ fontSize: 11, color: '#34d399', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Take Profit 2 (downside)</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 16, fontWeight: 'bold' }}>${fmt(signal.targetPrice2)}</span>
+              <button onClick={() => copy(signal.targetPrice2)} style={{ background: 'transparent', border: '1px solid #10b981', color: '#34d399', fontSize: 10, padding: '2px 6px', borderRadius: 4, cursor: 'pointer' }}>COPY</button>
+            </div>
+          </div>
+        ) : null}
+
+        <div style={{ flex: 1, minWidth: 150, background: 'rgba(239,68,68,0.05)', padding: '0.75rem', borderRadius: 6, border: '1px solid rgba(239,68,68,0.2)' }}>
+          <div style={{ fontSize: 11, color: '#f87171', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Stop Loss / Invalidation</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 16, fontWeight: 'bold' }}>${fmt(signal.invalidationPrice)}</span>
+            <button onClick={() => copy(signal.invalidationPrice)} style={{ background: 'transparent', border: '1px solid #ef4444', color: '#f87171', fontSize: 10, padding: '2px 6px', borderRadius: 4, cursor: 'pointer' }}>COPY</button>
+          </div>
+        </div>
+      </div>
+
+      {signal.invalidationReason && (
+        <div style={{ background: 'var(--panel-2)', padding: '0.75rem', borderRadius: 6, border: '1px solid var(--border)' }}>
+          <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Invalidation Trigger</div>
+          <p style={{ margin: 0, fontSize: 13 }}>{signal.invalidationReason}</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -75,12 +147,12 @@ function SellEvidenceTab({ signal }: { signal: SellSignalDetail }) {
     <div style={{ padding: '1rem', fontSize: '0.85rem' }}>
         <h3>SELL Evidence Log: {signal.id}</h3>
         <div className="diagnostic-grid">
-            <MetricCard label="Sell Score" value={signal.sellScore.toFixed(1)} />
-            <MetricCard label="Rule Score" value={signal.sellRuleScore.toFixed(1)} />
-            <MetricCard label="Final Threshold" value={signal.sellFinalThreshold.toFixed(1)} />
+            <MetricCard label="Sell Score" value={signal.sellScore != null ? signal.sellScore.toFixed(1) : 'N/A'} />
+            <MetricCard label="Rule Score" value={signal.sellRuleScore != null ? signal.sellRuleScore.toFixed(1) : 'N/A'} />
+            <MetricCard label="Final Threshold" value={signal.sellFinalThreshold != null ? signal.sellFinalThreshold.toFixed(1) : 'N/A'} />
         </div>
         <h4>Supporting Evidence</h4>
-        <ul>{signal.supportingEvidence.map(e => <li key={e}>{e}</li>)}</ul>
+        <ul>{(signal.supportingEvidence ?? []).map(e => <li key={e}>{e}</li>)}</ul>
     </div>
   );
 }

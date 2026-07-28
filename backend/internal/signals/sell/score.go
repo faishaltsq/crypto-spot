@@ -26,14 +26,31 @@ func RuleScore(f FeatureSnapshot) float64 {
 
 	// Wall-failure component: bid wall failing under sell pressure is strong
 	// confirming evidence; a healthy, unfailed bid wall pulls the score down.
-	wallScore := 50.0
+	//
+	// When NO wall event is observed at all (neither failed nor detected), the
+	// wall component carries zero information — a hardcoded neutral 50 would
+	// otherwise silently cap this 15% slice at half its range and drag the
+	// total below SetupScore even when trend+flow+structure are strongly
+	// bearish. In that case we drop the wall component and renormalize the
+	// remaining weights so absent orderbook-wall data neither helps nor hurts.
+	const (
+		wTrend     = 0.30
+		wFlow      = 0.30
+		wStructure = 0.25
+		wWall      = 0.15
+	)
+	var base float64
 	if f.Walls.BidWallFailed {
-		wallScore = 50 + f.Walls.BidWallFailureConfidence*50
+		wallScore := 50 + f.Walls.BidWallFailureConfidence*50
+		base = trendScore*wTrend + flowScore*wFlow + structureScore*wStructure + wallScore*wWall
 	} else if f.Walls.BidWallDetected {
-		wallScore = 30 // a holding bid wall is mild counter-evidence
+		wallScore := 30.0 // a holding bid wall is mild counter-evidence
+		base = trendScore*wTrend + flowScore*wFlow + structureScore*wStructure + wallScore*wWall
+	} else {
+		// No wall signal: renormalize trend/flow/structure to fill 100%.
+		total := wTrend + wFlow + wStructure
+		base = (trendScore*wTrend + flowScore*wFlow + structureScore*wStructure) / total
 	}
-
-	base := trendScore*0.30 + flowScore*0.30 + structureScore*0.25 + wallScore*0.15
 
 	spoofPenalty := f.SpoofScoreRaw * 0.18
 	dataQualityFactor := clamp(f.DataQualityScore/100, 0, 1)

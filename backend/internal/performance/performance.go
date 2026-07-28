@@ -123,7 +123,7 @@ func Reliability(n int) string {
 }
 
 func Build(samples []Sample) Report {
-	report := Report{StatusCounts: map[Status]int{}, CalculationTimestamp: time.Now().UTC(), ReliabilityDefinition: "<30 insufficient; 30-99 preliminary; 100-499 moderate; >=500 stronger evidence"}
+	report := Report{StatusCounts: map[Status]int{}, CalculationTimestamp: time.Now().UTC(), ReliabilityDefinition: "<30 insufficient; 30-99 preliminary; 100-499 moderate; >=500 stronger evidence", CumulativeGross: []float64{}, CumulativeNet: []float64{}, Warnings: []string{}}
 	var evaluated []Sample
 	for _, sample := range samples {
 		report.StatusCounts[sample.SimulationStatus]++
@@ -269,7 +269,7 @@ func drawdown(values []float64) []float64 {
 }
 func breakdowns(samples []Sample) []Breakdown {
 	dimensions := map[string]func(Sample) string{"notional": func(s Sample) string { return formatNotional(s.Notional) }, "pair": func(s Sample) string { return s.Pair }, "tier": func(s Sample) string { return s.Tier }, "timeframe": func(s Sample) string { return s.Timeframe }, "score_bucket": func(s Sample) string { return ScoreBucket(s.Score) }, "market_regime": func(s Sample) string { return s.MarketRegime }, "rule_version": func(s Sample) string { return s.RuleVersion }, "model_version": func(s Sample) string { return s.ModelVersion }, "ai_decision": func(s Sample) string { return s.AIDecision }, "ai_provider": func(s Sample) string { return s.AIProvider }, "data_quality_bucket": func(s Sample) string { return s.DataQuality }, "spoof_risk_bucket": func(s Sample) string { return s.SpoofRisk }, "signal_status": func(s Sample) string { return s.SignalStatus }}
-	var out []Breakdown
+	out := []Breakdown{}
 	for dimension, get := range dimensions {
 		groups := map[string][]Sample{}
 		for _, s := range samples {

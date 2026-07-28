@@ -15,10 +15,17 @@ func loadSellConfig() SellConfig {
 	c.ConfirmScore = getFloat("SELL_CONFIRM_SCORE", 82)
 	c.MinRuleScore = getFloat("SELL_MIN_RULE_SCORE", 68)
 	c.MinModelProbability = getFloat("SELL_MIN_MODEL_PROBABILITY", 0.60)
-	c.MinDataQuality = getFloat("SELL_MIN_DATA_QUALITY", 80)
+	// MinDataQuality lowered 80 -> 75 to match the BUY engine's
+	// MinDataQualityForSignal (signals/engine.go); an 80 floor hard-gated SELL
+	// out of pairs whose data quality (75-79) was good enough for BUY.
+	c.MinDataQuality = getFloat("SELL_MIN_DATA_QUALITY", 75)
 	c.MaxSpoofScore = getFloat("SELL_MAX_SPOOF_SCORE", 60)
 	c.MinTradeflowScore = getFloat("SELL_MIN_TRADEFLOW_SCORE", 70)
-	c.MinTimeframeAlignment = getFloat("SELL_MIN_TIMEFRAME_ALIGNMENT", 60)
+	// MinTimeframeAlignment lowered 60 -> 40. The old -0.60 weighted-trend
+	// requirement was rarely met early in a selloff because high-timeframe EMA
+	// crossovers lag; -0.40 plus the low-timeframe override in
+	// bearishTrendConfirmed lets fresh breakdowns surface.
+	c.MinTimeframeAlignment = getFloat("SELL_MIN_TIMEFRAME_ALIGNMENT", 40)
 
 	c.PairCooldown = durationMinutes("SELL_PAIR_COOLDOWN_MINUTES", 30)
 	c.MaxActiveGlobal = getInt("SELL_MAX_ACTIVE_GLOBAL", 15)

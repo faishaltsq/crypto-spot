@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/example/crypto-spot-signal/internal/domain"
@@ -166,6 +168,117 @@ var sellSignalTypes = []string{
 	domain.TakeProfitSuggested, domain.AvoidEntrySignal, domain.ExitWarningSignal,
 }
 
+// ActiveSignalFilter narrows the unified BUY+SELL active-signal snapshot
+// (GET /api/v1/signals/active). All fields are optional; zero-value means
+// "no filter".
+type ActiveSignalFilter struct {
+	Direction string // "BUY" or "SELL"
+	Strategy  string // ENTRY_BUY, PROTECTIVE_SELL, TAKE_PROFIT, EXIT_WARNING, AVOID_ENTRY
+	Symbol    string
+	Timeframe string
+	Limit     int
+}
+
+var activeSignalDirectionTypes = map[string][]string{
+	"BUY":  {"BUY_SETUP", "BUY_CONFIRMED"},
+	"SELL": sellSignalTypes,
+}
+
+// ENTRY_BUY is handled as a special case in ListActiveSignals (maps to
+// BUY_SETUP/BUY_CONFIRMED) since those two BUY types aren't representable
+// as a single domain.SellSignalType constant. PROTECTIVE_SELL maps to two
+// types (SELL_SETUP and SELL_CONFIRMED are both "protective sell" per
+// domain.SignalStrategy), the rest map 1:1.
+var activeSignalStrategyTypes = map[string][]string{
+	"PROTECTIVE_SELL": {domain.SellSignalSetup, domain.SellSignalConfirmed},
+	"TAKE_PROFIT":     {domain.TakeProfitSuggested},
+	"EXIT_WARNING":    {domain.ExitWarningSignal},
+	"AVOID_ENTRY":     {domain.AvoidEntrySignal},
+}
+
+// ListActiveSignals returns every BUY and SELL family signal that is
+// currently active per the backend's SignalIsActiveAt business rule
+// (non-terminal status AND not past expires_at), across both directions,
+// as one unified list. This is the single backend contract both the
+// Terminal and the Signals page must use for "active" — no client is
+// allowed to derive activeness from status string matching on its own.
+//
+// It reuses SellSignalDetail as the row shape for BUY rows too (with
+// COALESCE(...,0) for the SELL-only numeric columns, which are NULL for
+// BUY rows) so callers get one consistent JSON shape regardless of
+// direction.
+func (r *Repository) ListActiveSignals(ctx context.Context, filter ActiveSignalFilter) ([]SellSignalDetail, error) {
+	if filter.Limit <= 0 || filter.Limit > 500 {
+		filter.Limit = 200
+	}
+
+	allTypes := append([]string{"BUY_SETUP", "BUY_CONFIRMED"}, sellSignalTypes...)
+	types := allTypes
+	if filter.Direction != "" {
+		if t, ok := activeSignalDirectionTypes[strings.ToUpper(filter.Direction)]; ok {
+			types = t
+		}
+	}
+	if filter.Strategy != "" {
+		if strings.ToUpper(filter.Strategy) == "ENTRY_BUY" {
+			types = []string{"BUY_SETUP", "BUY_CONFIRMED"}
+		} else if t, ok := activeSignalStrategyTypes[strings.ToUpper(filter.Strategy)]; ok {
+			types = t
+		}
+	}
+
+	args := []interface{}{types}
+	argIdx := 2
+	clauses := []string{"signal_type = ANY($1)", "closed_at IS NULL", "expires_at > NOW()"}
+	if filter.Symbol != "" {
+		clauses = append(clauses, fmt.Sprintf("symbol = $%d", argIdx))
+		args = append(args, strings.ToUpper(filter.Symbol))
+		argIdx++
+	}
+	if filter.Timeframe != "" {
+		clauses = append(clauses, fmt.Sprintf("primary_timeframe = $%d", argIdx))
+		args = append(args, filter.Timeframe)
+		argIdx++
+	}
+	statusExclusion := "status NOT IN ('CLOSED','INVALIDATED','EXPIRED','BLOCKED','SUPPRESSED')"
+	clauses = append(clauses, statusExclusion)
+
+	query := fmt.Sprintf(`
+		SELECT id::text, symbol, signal_type, status, primary_timeframe,
+			entry_price, invalidation_price, target_price_1, target_price_2,
+			rule_score, reasons, risk_flags, feature_snapshot,
+			signal_version, evidence, threshold_detail, data_quality_score,
+			data_quality_status, data_source, missing_features, blocked_reasons,
+			created_at, expires_at,
+			COALESCE(sell_score, 0), COALESCE(sell_rule_score, 0),
+			COALESCE(sell_base_threshold, 0), COALESCE(sell_final_threshold, 0),
+			trade_flow_snapshot, bearish_structure_snapshot, spoof_analysis,
+			supporting_evidence, contradicting_evidence,
+			COALESCE(invalidation_reason, '')
+		FROM signals
+		WHERE %s
+		ORDER BY created_at DESC
+		LIMIT $%d
+	`, strings.Join(clauses, " AND "), argIdx)
+	args = append(args, filter.Limit)
+
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []SellSignalDetail{}
+	for rows.Next() {
+		detail, err := scanSellSignal(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, detail)
+	}
+	return out, rows.Err()
+}
+
 // ListSellSignals returns SELL-family signals (all five types) ordered by
 // recency, optionally filtered to one symbol. It is the SELL-side
 // counterpart to ListSignalsFiltered, kept in its own function rather than
@@ -262,6 +375,7 @@ func scanSellSignal(row rowScanner) (SellSignalDetail, error) {
 	_ = json.Unmarshal(blockedReasonsJSON, &detail.BlockedReasons)
 	_ = json.Unmarshal(supportingJSON, &detail.SupportingEvidence)
 	_ = json.Unmarshal(contradictingJSON, &detail.ContradictingEvidence)
+	detail.Enrich()
 	return detail, nil
 }
 

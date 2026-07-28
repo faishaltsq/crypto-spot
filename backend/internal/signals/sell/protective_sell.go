@@ -43,6 +43,33 @@ func estimateVolatility(f FeatureSnapshot) float64 {
 	return base
 }
 
+// bearishTrendConfirmed decides whether a pair is bearish-aligned enough to
+// justify a PROTECTIVE_SELL. The primary gate is the multi-timeframe
+// weightedTrend (TrendAlignment, negative when timeframes agree on a
+// downtrend): TrendAlignment <= -minAlignment/100 passes immediately.
+//
+// The weightedTrend is dominated by high-timeframe EMA9/EMA20 crossovers (1d
+// weight 4, 4h weight 3). Early in a selloff price can fall sharply on 1m/5m
+// while the daily/4h EMAs have not crossed yet, so TrendAlignment stays above
+// the threshold and a genuinely bearish move is missed. To catch that case we
+// add a low-timeframe override: if the fast timeframes (5m/15m) are already
+// bearish AND aggressive sell flow dominates (AggressiveSellRatio >= 0.60)
+// with a negative CVD slope, we treat the pair as bearish-aligned even though
+// the slow-timeframe-weighted alignment hasn't caught up. This mirrors how a
+// trader reads a fresh breakdown before the higher-timeframe averages roll.
+func bearishTrendConfirmed(f FeatureSnapshot, minAlignment float64) bool {
+	if f.TrendAlignment <= -minAlignment/100 {
+		return true
+	}
+	lowTFBearish := f.TrendByTimeframe["5m"] == "bearish" || f.TrendByTimeframe["15m"] == "bearish"
+	strongSellFlow := f.TradeFlow.AggressiveSellRatio >= 0.60 && f.TradeFlow.NegativeCVDSlope < 0
+	// Require the move to not be counter-trended by a bullish higher timeframe;
+	// a slightly-positive alignment near zero is acceptable, a clearly bullish
+	// alignment is not.
+	notCounterTrended := f.TrendAlignment < 0.20
+	return lowTFBearish && strongSellFlow && notCounterTrended
+}
+
 // evaluateProtectiveSell emits SELL_SETUP/SELL_CONFIRMED for a pair that has
 // no BUY-side involvement at all — a pure informational bearish signal used
 // by the terminal's Active Signals list independent of any user position.
@@ -53,7 +80,7 @@ func (e *Engine) evaluateProtectiveSell(f FeatureSnapshot, ruleScore float64, th
 	if f.SpoofScoreRaw > e.cfg.MaxSpoofScore {
 		return nil, false
 	}
-	if f.TrendAlignment > -e.cfg.MinTimeframeAlignment/100 {
+	if !bearishTrendConfirmed(f, e.cfg.MinTimeframeAlignment) {
 		// Not bearish-aligned enough across timeframes.
 		return nil, false
 	}
@@ -101,7 +128,7 @@ func baseSignal(f FeatureSnapshot, signalType, status string, ruleScore float64,
 		SpoofScore:           f.SpoofScoreRaw,
 		SpoofStatus:          f.SpoofStatus,
 	}
-	return &domain.Signal{
+	sig := &domain.Signal{
 		ID:                newSignalID(),
 		Symbol:            f.Symbol,
 		Type:              signalType,
@@ -124,6 +151,8 @@ func baseSignal(f FeatureSnapshot, signalType, status string, ruleScore float64,
 		CreatedAt:         now,
 		ExpiresAt:         now.Add(2 * time.Hour),
 	}
+	sig.Enrich()
+	return sig
 }
 
 func choosePrimaryTimeframe(f FeatureSnapshot) string {

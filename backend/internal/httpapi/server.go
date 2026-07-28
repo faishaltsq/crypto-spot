@@ -68,6 +68,7 @@ func New(
 
 	router.Route("/api/v1", func(r chi.Router) {
 		r.Get("/scanner", server.scanner)
+		r.Get("/signals/active", server.listActiveSignals)
 		r.Get("/signals", server.listSignals)
 		r.Get("/signals/{id}", server.getSignal)
 		r.Post("/signals/export", server.exportSignals)
