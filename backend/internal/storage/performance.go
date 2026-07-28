@@ -58,7 +58,7 @@ func (r *Repository) PerformanceReport(ctx context.Context, filters performance.
 		COALESCE(s.signal_version->>'modelVersion','UNAVAILABLE'), COALESCE(s.ai_review->>'decision','UNAVAILABLE'),
 		COALESCE(s.ai_review->>'provider','UNAVAILABLE'), COALESCE(s.data_quality_status::text,'UNAVAILABLE'),
 		COALESCE(s.threshold_detail->>'spoofStatusAtSignal','UNAVAILABLE'), s.rule_score, p.notional,
-		p.gross_return, p.net_return, p.entry_fee, p.exit_fee, p.entry_slippage, p.exit_slippage,
+		p.gross_return, p.net_return, COALESCE(p.entry_fee, 0), COALESCE(p.exit_fee, 0), COALESCE(p.entry_slippage, 0), COALESCE(p.exit_slippage, 0),
 		o.returns, COALESCE(o.max_favorable_pct, 0), COALESCE(o.max_adverse_pct, 0), COALESCE(o.target_hit, false), COALESCE(o.invalidation_hit, false),
 		CASE WHEN p.signal_id IS NULL THEN 'PENDING_SIMULATION' WHEN p.simulation_status = 'INCOMPLETE' THEN 'INCOMPLETE_SIMULATION' WHEN p.simulation_status = 'PARTIAL_FILL' THEN 'PARTIAL_FILL' WHEN p.net_return IS NOT NULL AND p.gross_return IS NOT NULL THEN 'EVALUATED' ELSE 'INCOMPLETE_SIMULATION' END,
 		COALESCE(EXTRACT(EPOCH FROM p.simulated_at - s.created_at), 0)
