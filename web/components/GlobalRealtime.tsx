@@ -7,6 +7,7 @@ import { useMarketStore } from '@/stores/market';
 export function GlobalRealtime() {
   const updatePair = useMarketStore(state => state.updatePair);
   const updateSignal = useMarketStore(state => state.updateSignal);
+  const updateSellSignal = useMarketStore(state => state.updateSellSignal);
 
   const socketRef = useRef<WebSocket | null>(null);
   const comparePairsRef = useRef(new Set<string>());
@@ -37,7 +38,7 @@ export function GlobalRealtime() {
         case 'quality.snapshot':
           window.dispatchEvent(new CustomEvent('quality-updated'));
           break;
-        case 'signal.new':
+        case 'signal.created':
           // Play sound on new signal
           const audio = new Audio('/notification.mp3');
           audio.play().catch(e => console.error("Audio playback failed", e));
@@ -47,8 +48,7 @@ export function GlobalRealtime() {
           // Play sound on new SELL signal too
           const audioSell = new Audio('/notification.mp3');
           audioSell.play().catch(e => console.error("Audio playback failed", e));
-          // TODO: implement updateSellSignal in market store
-          // updateSellSignal(message.data as any);
+          updateSellSignal(message.data as any);
           break;
         case 'signal.update':
       }
