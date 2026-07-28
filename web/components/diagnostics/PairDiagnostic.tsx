@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { FeatureSnapshot, Signal } from '@/types/market';
+import { FeatureSnapshot, Signal, SellSignalDetail } from '@/types/market';
 import { useMarketStore } from '@/stores/market';
-import { Activity, Database, Zap, Target, BookOpen, Layers, ShieldCheck, Bot } from 'lucide-react';
+import { Activity, Database, Zap, Target, BookOpen, Layers, ShieldCheck, Bot, BarChart } from 'lucide-react';
 
 interface PairDiagnosticProps {
   symbol: string;
@@ -13,7 +13,10 @@ interface PairDiagnosticProps {
 export function PairDiagnostic({ symbol, diagnosticData }: PairDiagnosticProps) {
   const [activeTab, setActiveTab] = useState('Overview');
   const storeSignals = useMarketStore(state => state.signals);
+  const storeSellSignals = useMarketStore(state => state.sellSignals);
+  
   const activeSignal = storeSignals.find(s => s.symbol === symbol && s.status !== 'CLOSED' && s.status !== 'INVALIDATED');
+  const activeSellSignal = storeSellSignals.find(s => s.symbol === symbol && s.status !== 'CLOSED' && s.status !== 'INVALIDATED');
 
   const tabs = [
     { id: 'Overview', icon: <Activity size={14}/> },
@@ -28,6 +31,8 @@ export function PairDiagnostic({ symbol, diagnosticData }: PairDiagnosticProps) 
   if (activeSignal) {
     tabs.splice(5, 0, { id: 'Signal Setup', icon: <Target size={14}/> });
     tabs.splice(6, 0, { id: 'Evidence', icon: <ShieldCheck size={14}/> });
+  } else if (activeSellSignal) {
+    tabs.splice(5, 0, { id: 'Sell Evidence', icon: <BarChart size={14}/> });
   }
 
   if (!diagnosticData) {
@@ -59,7 +64,23 @@ export function PairDiagnostic({ symbol, diagnosticData }: PairDiagnosticProps) 
         {activeTab === 'AI Review' && <AIReviewTab data={diagnosticData} />}
         {activeTab === 'Signal Setup' && activeSignal && <SignalSetupTab signal={activeSignal} />}
         {activeTab === 'Evidence' && activeSignal && <SignalEvidenceTab signal={activeSignal} />}
+        {activeTab === 'Sell Evidence' && activeSellSignal && <SellEvidenceTab signal={activeSellSignal} />}
       </div>
+    </div>
+  );
+}
+
+function SellEvidenceTab({ signal }: { signal: SellSignalDetail }) {
+  return (
+    <div style={{ padding: '1rem', fontSize: '0.85rem' }}>
+        <h3>SELL Evidence Log: {signal.id}</h3>
+        <div className="diagnostic-grid">
+            <MetricCard label="Sell Score" value={signal.sellScore.toFixed(1)} />
+            <MetricCard label="Rule Score" value={signal.sellRuleScore.toFixed(1)} />
+            <MetricCard label="Final Threshold" value={signal.sellFinalThreshold.toFixed(1)} />
+        </div>
+        <h4>Supporting Evidence</h4>
+        <ul>{signal.supportingEvidence.map(e => <li key={e}>{e}</li>)}</ul>
     </div>
   );
 }

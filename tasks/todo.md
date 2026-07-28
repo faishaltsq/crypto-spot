@@ -10,6 +10,41 @@
   - State: `in_progress`
   - Note: does not touch `web/components/pairs/VirtualPairList.tsx`, `web/lib/settings.ts`, `backend/internal/httpapi/settings.go` beyond additive route registration; those active hunks from other agents are left untouched.
 
+## Settings "unavailable" Build-Break Fix 2026-07-28
+
+- [x] Remove unused `uuid` import breaking backend build
+  - Owner: `opencode-settings-diagnosis`
+  - Started (UTC): `2026-07-28T00:00:00Z`
+  - Files: `backend/internal/httpapi/server.go`, `tasks/todo.md`
+  - Verify: `cd backend; go build ./...; go test ./internal/httpapi/...`
+  - State: `done`
+  - Completed (UTC): `2026-07-28T00:00:00Z`
+  - Result: `server.go` had an unused `github.com/google/uuid` import (WIP leftover from `opencode-sell-engine`'s in-progress edits), causing `go build` to fail entirely. Since backend didn't compile, every API route including `/api/v1/settings/system` was unreachable, which is why the Settings page showed "System status unavailable." Removed the one unused import line only; did not touch any sell-engine logic in this file. `go build ./...` and `go test ./internal/httpapi/...` now pass.
+  - Handoff: `opencode-sell-engine` still owns `server.go` per its lock; if it re-adds `uuid` usage later, no conflict expected since this change only removed a dead import line.
+
+## Docker Backend/Migrate Stale Image + Missing Checksum Fix 2026-07-28
+
+- [x] Rebuild backend/migrate images from latest source and register migration 012 checksums
+  - Owner: `opencode-settings-diagnosis`
+  - Started (UTC): `2026-07-28T05:00:00Z`
+  - Files: `backend/migrations/versioned/checksums.sha256`, `tasks/todo.md`
+  - Verify: `docker compose build backend migrate; docker compose run --rm migrate up; docker compose up -d backend; cd backend; go test ./...`
+  - State: `done`
+  - Completed (UTC): `2026-07-28T05:45:00Z`
+  - Result: Two stacked issues caused runtime errors after the CORS fix. (1) The running `backend` Docker image was built before the CORS header fix (`X-User-ID`/`X-User-Role` added to `AllowedHeaders` in commit `c33e239`), so preflight OPTIONS requests were silently rejected with no `Access-Control-Allow-Origin` header, causing browser CORS errors on `/settings/preferences`, `/settings/system`, `/admin/settings*`. (2) `checksums.sha256` was missing entries for `012_sell_signals.up.sql`/`.down.sql`, so `internal/migration.validateChecksums` caused the migrate container to treat the DB as already up to date at schema version 11 (never applying migration 012). This left `sell_score`/`sell_rule_score`/etc. columns missing on `signals`, causing `/api/v1/sell/signals` to return 500 `column "sell_score" does not exist`, which surfaced in the frontend as `Request failed: 500` from `initializeSignals` in `stores/market.ts`. Fixed by: rebuilding `backend` and `migrate` images from current source, adding the two missing checksum entries, running `migrate up` (now at schema version 12), and recreating the `backend` container. Verified `/api/v1/settings/system`, `/api/v1/sell/signals`, and `/api/v1/signals` all return 200, and `cd backend; go test ./...` passes.
+  - Handoff: any agent that adds a new migration file must also add its checksum entries to `backend/migrations/versioned/checksums.sha256` in the same change, and rebuild+redeploy the `backend`/`migrate` Docker images (stale prebuilt images silently mask both build fixes and new migrations).
+
+## Sell Signals Null List Crash Fix 2026-07-28
+
+- [x] Return empty array instead of null from ListSellSignals; guard store against null API results
+  - Owner: `opencode-settings-diagnosis`
+  - Started (UTC): `2026-07-28T05:50:00Z`
+  - Files: `backend/internal/storage/sell.go`, `web/stores/market.ts`, `tasks/todo.md`
+  - Verify: `cd backend; go build ./...; go test ./...` and `docker compose build backend; docker compose up -d backend`
+  - Result: `signals` table was freshly empty right after migration 012 applied (no SELL signals recorded yet). `Repository.ListSellSignals` declared `var out []SellSignalDetail`, which stays Go `nil` when zero rows match and serializes to JSON `null`. `stores/market.ts:initializeSignals` stored that `null` directly into `sellSignals`, and `PairDiagnostic.tsx:19` called `.find()` on it, throwing `Cannot read properties of null (reading 'find')` and crashing the terminal page. Fixed by initializing `out := []SellSignalDetail{}` so empty results serialize to `[]`, and added a `?? []` guard in `initializeSignals` as defense-in-depth against any other endpoint returning null. Verified `GET /api/v1/sell/signals` now returns `{"signals":[]}`, `go build`/`go test ./...` pass, and rebuilt+redeployed the `backend` image.
+  - State: `done`
+  - Completed (UTC): `2026-07-28T06:00:00Z`
+
 ## Terminal Data Quality Missing Metrics Fix 2026-07-27
 
 - [x] Render incomplete quality metrics safely

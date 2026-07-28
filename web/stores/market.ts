@@ -57,7 +57,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
         getSignals(100),
         sellApi.listSignals(undefined, 100).then(res => res.signals)
       ]);
-      set({ signals: globalSignals, sellSignals: globalSellSignals });
+      set({ signals: globalSignals ?? [], sellSignals: globalSellSignals ?? [] });
     } catch (error) {
       console.error('Failed to fetch global signals:', error);
     }

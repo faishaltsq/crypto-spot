@@ -203,7 +203,7 @@ func (r *Repository) ListSellSignals(ctx context.Context, symbol string, limit i
 	}
 	defer rows.Close()
 
-	var out []SellSignalDetail
+	out := []SellSignalDetail{}
 	for rows.Next() {
 		detail, err := scanSellSignal(rows)
 		if err != nil {
