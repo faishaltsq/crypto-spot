@@ -43,6 +43,13 @@ export function GlobalRealtime() {
           audio.play().catch(e => console.error("Audio playback failed", e));
           updateSignal(message.data as any);
           break;
+        case 'sell.signal.created':
+          // Play sound on new SELL signal too
+          const audioSell = new Audio('/notification.mp3');
+          audioSell.play().catch(e => console.error("Audio playback failed", e));
+          // TODO: implement updateSellSignal in market store
+          // updateSellSignal(message.data as any);
+          break;
         case 'signal.update':
       }
     },

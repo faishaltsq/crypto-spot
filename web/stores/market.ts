@@ -1,10 +1,11 @@
 import { create } from 'zustand';
-import { FeatureSnapshot, Signal } from '@/types/market';
-import { getScanner, getSignals } from '@/lib/api';
+import { FeatureSnapshot, Signal, SellSignalDetail } from '@/types/market';
+import { getScanner, getSignals, sellApi } from '@/lib/api';
 
 interface MarketState {
   scanner: Record<string, FeatureSnapshot>;
   signals: Signal[];
+  sellSignals: SellSignalDetail[];
   scannerArray: FeatureSnapshot[];
   isLoading: boolean;
   error: string | null;
@@ -12,6 +13,7 @@ interface MarketState {
   initializeSignals: () => Promise<void>;
   updatePair: (pair: FeatureSnapshot) => void;
   updateSignal: (signal: Signal) => void;
+  updateSellSignal: (signal: SellSignalDetail) => void;
 }
 
 let pendingPairs: Record<string, FeatureSnapshot> = {};
@@ -22,6 +24,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
   scanner: {},
   scannerArray: [],
   signals: [],
+  sellSignals: [],
   isLoading: false,
   error: null,
 
@@ -50,8 +53,11 @@ export const useMarketStore = create<MarketState>((set, get) => ({
 
   initializeSignals: async () => {
     try {
-      const globalSignals = await getSignals(100);
-      set({ signals: globalSignals });
+      const [globalSignals, globalSellSignals] = await Promise.all([
+        getSignals(100),
+        sellApi.listSignals(undefined, 100).then(res => res.signals)
+      ]);
+      set({ signals: globalSignals, sellSignals: globalSellSignals });
     } catch (error) {
       console.error('Failed to fetch global signals:', error);
     }
@@ -97,7 +103,7 @@ export const useMarketStore = create<MarketState>((set, get) => ({
 
           return {
             scanner: newScanner,
-            scannerArray: Object.values(newScanner), // Keep array updated for sorting/filtering
+            scannerArray: Object.values(newScanner),
             ...(signalsUpdated ? { signals: newSignals } : {})
           };
         });
@@ -114,6 +120,18 @@ export const useMarketStore = create<MarketState>((set, get) => ({
         return { signals: newSignals };
       }
       return { signals: [signal, ...state.signals].slice(0, 100) };
+    });
+  },
+
+  updateSellSignal: (signal: SellSignalDetail) => {
+    set((state) => {
+      const existingIdx = state.sellSignals.findIndex(s => s.id === signal.id);
+      if (existingIdx >= 0) {
+        const newSignals = [...state.sellSignals];
+        newSignals[existingIdx] = signal;
+        return { sellSignals: newSignals };
+      }
+      return { sellSignals: [signal, ...state.sellSignals].slice(0, 100) };
     });
   }
 }));
