@@ -51,9 +51,14 @@ func (cm *ConnectionManager) UpdatePairs(ctx context.Context, pairs []universe.R
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
-	// If these are new pairs, start background history fetching
-	if len(cm.active) == 0 && len(pairs) > 0 {
-		go cm.historyFetcher.Backfill(ctx, pairs)
+	// Backfill history for any pair not already tracked, not just on the very
+	// first call. Without this, pairs added to the universe on a later
+	// refresh (e.g. newly-listed/low-liquidity pairs) never get REST kline
+	// backfill and only accumulate candles from live WS ticks going forward,
+	// leaving their chart with just 1-2 candles for a long time.
+	newPairs := cm.diffNewPairs(pairs)
+	if len(newPairs) > 0 {
+		go cm.historyFetcher.Backfill(ctx, newPairs)
 	}
 
 	cm.active = pairs
@@ -73,6 +78,23 @@ func (cm *ConnectionManager) UpdatePairs(ctx context.Context, pairs []universe.R
 	if len(batch) > 0 {
 		cm.startConnection(ctx, batch)
 	}
+}
+
+// diffNewPairs returns the subset of pairs not present in cm.active,
+// so backfill only re-fetches history for pairs entering the universe
+// for the first time, not the whole active set on every refresh.
+func (cm *ConnectionManager) diffNewPairs(pairs []universe.RankedPair) []universe.RankedPair {
+	existing := make(map[string]struct{}, len(cm.active))
+	for _, p := range cm.active {
+		existing[p.Symbol] = struct{}{}
+	}
+	var fresh []universe.RankedPair
+	for _, p := range pairs {
+		if _, ok := existing[p.Symbol]; !ok {
+			fresh = append(fresh, p)
+		}
+	}
+	return fresh
 }
 
 func (cm *ConnectionManager) startConnection(ctx context.Context, pairs []universe.RankedPair) {

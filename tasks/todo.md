@@ -1,5 +1,15 @@
 # Dynamic Signal Threshold Tasks
 
+## Fix sparse/broken candle chart for newly-added pairs 2026-07-29
+
+- [x] Backfill REST klines for pairs added to the universe after startup; show placeholder instead of a stretched single candle.
+  - Owner: `opencode-chart-backfill`
+  - Started (UTC): `2026-07-29T00:00:00Z`
+  - Files: `backend/internal/exchange/gate/connection_manager.go`, `web/components/chart/LightweightMarketChart.tsx`, `web/app/globals.css`
+  - Verify: `cd backend; go build ./...; go test ./...` and `cd web; npm run build`
+  - State: `done`
+  - Result: root cause was `ConnectionManager.UpdatePairs` only firing `HistoryFetcher.Backfill` once, when `cm.active` was empty (startup). Pairs added on a later universe refresh (e.g. `PairUniverseRefreshMin` ticker, low-liquidity/newly-listed pairs like EVAA/USDT) never got the 300-bar REST kline backfill and only accumulated candles from live WS ticks going forward, leaving their chart with 1-2 candles. Added `diffNewPairs` to backfill any symbol not already in `cm.active` on every `UpdatePairs` call, not just the first. Frontend: `LightweightMarketChart.tsx` now shows a "Collecting candle data" placeholder when `formattedData.length < 5` instead of letting lightweight-charts' `fitContent()` stretch a near-empty series into one giant bar. Added `@keyframes spin` to `globals.css` for the placeholder spinner. Backend `go build`/`go test ./...` passed (all packages ok, `gate` has no test files pre-existing). `cd web; npm run build` passed.
+
 ## Hide sub-threshold signals from UI to reduce lag 2026-07-29
 
 - [x] Filter below-minimum-score signals out of history/dashboard rendering (still scanned/stored in background).

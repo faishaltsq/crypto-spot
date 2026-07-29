@@ -58,6 +58,13 @@ export function LightweightMarketChart({ symbol, initialData }: ChartProps) {
   // signal-line effect knows seriesRef is populated and can (re)draw.
   const [chartReady, setChartReady] = useState(0);
 
+  // Below this many bars, a single/near-single candle just stretches to fill
+  // the whole chart width (lightweight-charts' fitContent behavior on sparse
+  // data), which reads as a broken chart rather than "still collecting data".
+  // Newly-added/low-liquidity pairs start empty and only backfill/accumulate
+  // candles over time, so show a placeholder instead of the stretched bar.
+  const MIN_CANDLES_TO_RENDER = 5;
+
   const availableTimeframes = ['10s', '1m', '5m', '15m', '30m', '1h', '4h', '8h', '1d', '7d'];
   const indicatorOptions = ['Volume', 'EMA 9', 'EMA 20', 'EMA 50', 'EMA 200'];
 
@@ -540,7 +547,21 @@ export function LightweightMarketChart({ symbol, initialData }: ChartProps) {
       {/* Chart Container */}
       <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
         <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0 }} />
-        
+
+        {formattedData.length < MIN_CANDLES_TO_RENDER && (
+          <div style={{
+            position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            gap: 8, background: '#0f172a', zIndex: 1,
+          }}>
+            <RefreshCw size={20} color="#64748b" style={{ animation: 'spin 2s linear infinite' }} />
+            <div style={{ color: '#94a3b8', fontSize: 13, fontWeight: 600 }}>Collecting candle data</div>
+            <div style={{ color: '#64748b', fontSize: 12 }}>
+              {displaySymbol} has {formattedData.length} {activeChartTimeframe} candle{formattedData.length === 1 ? '' : 's'} so far
+            </div>
+          </div>
+        )}
+
         {/* Watermark */}
         <div style={{
           position: 'absolute',
