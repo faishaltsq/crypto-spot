@@ -5,8 +5,11 @@ import { useMarketStore } from '@/stores/market';
 import { Signal } from '@/types/market';
 import { formatPrice } from '@/lib/format';
 import { isSignalActive, LIFECYCLE_LABEL } from '@/lib/signal-status';
+import { getPublicConfig } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import { AlertCircle, Clock, X, Check, Copy } from 'lucide-react';
+
+const DEFAULT_MIN_SCORE = 70;
 
 interface RightSignalPanelProps {
   symbol: string;
@@ -21,7 +24,17 @@ export function RightSignalPanel({ symbol, initialSignals }: RightSignalPanelPro
   const initializeSignals = useMarketStore(state => state.initializeSignals);
   const [selectedSignal, setSelectedSignal] = useState<Signal | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('Active');
+  const [minScore, setMinScore] = useState(DEFAULT_MIN_SCORE);
   const router = useRouter();
+
+  // Below-threshold candidates are still scanned and stored by the backend;
+  // we just skip rendering them in History so the panel isn't flooded with
+  // sub-threshold noise that never became an actionable signal.
+  useEffect(() => {
+    getPublicConfig()
+      .then(cfg => setMinScore(cfg.signalMinScore))
+      .catch(() => undefined);
+  }, []);
 
   const handleSignalClick = (sig: Signal) => {
     setSelectedSignal(sig);
@@ -71,11 +84,14 @@ export function RightSignalPanel({ symbol, initialSignals }: RightSignalPanelPro
       case 'Watch':
         return base.filter(s => s.lifecycleGroup === 'WATCH');
       case 'History':
-        return base.slice(0, 50);
+        return base
+          .filter(s => (s.ruleScore ?? 0) >= minScore)
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+          .slice(0, 50);
       default:
         return base;
     }
-  }, [allSignals, activeTab]);
+  }, [allSignals, activeTab, minScore]);
 
   return (
     <div className="signal-panel-container">
