@@ -53,6 +53,7 @@ type Config struct {
 	SignalMaxActiveGlobal  int
 	SignalMaxActiveCluster int
 	SignalMaxNewPerMinute  int
+	SignalMinTrendAlignment float64
 	OrderbookDepthPercent float64
 	MaxSpreadBPS          float64
 	MinDepthQuote         float64
@@ -144,6 +145,7 @@ func Load() (Config, error) {
 	cfg.SignalMaxActiveGlobal = getInt("SIGNAL_MAX_ACTIVE_GLOBAL", 15)
 	cfg.SignalMaxActiveCluster = getInt("SIGNAL_MAX_ACTIVE_PER_CLUSTER", 3)
 	cfg.SignalMaxNewPerMinute = getInt("SIGNAL_MAX_NEW_PER_MINUTE", 5)
+	cfg.SignalMinTrendAlignment = getFloat("SIGNAL_MIN_TREND_ALIGNMENT", 0.20)
 
 	cfg.OrderbookDepthPercent = getFloat("ORDERBOOK_DEPTH_PERCENT", 0.5)
 	cfg.MaxSpreadBPS = getFloat("MAX_SPREAD_BPS", 35)
@@ -211,7 +213,7 @@ func Load() (Config, error) {
 	if cfg.OrderbookDepthPercent <= 0 {
 		return cfg, fmt.Errorf("ORDERBOOK_DEPTH_PERCENT must be positive")
 	}
-	if cfg.SignalConfirmScore < cfg.SignalSetupScore || cfg.SignalMinModelProb < 0 || cfg.SignalMinModelProb > 1 || cfg.SignalMinDataQuality < 0 || cfg.SignalMinDataQuality > 100 || cfg.SignalMaxSpoofScore < 0 || cfg.SignalMaxSpoofScore > 100 || cfg.SignalMaxActiveGlobal < 0 || cfg.SignalMaxActivePerPair < 0 || cfg.SignalMaxActiveCluster < 0 || cfg.SignalMaxNewPerMinute < 0 || cfg.SignalPairCooldown < 0 { return cfg, fmt.Errorf("invalid signal engine configuration") }
+	if cfg.SignalConfirmScore < cfg.SignalSetupScore || cfg.SignalMinModelProb < 0 || cfg.SignalMinModelProb > 1 || cfg.SignalMinDataQuality < 0 || cfg.SignalMinDataQuality > 100 || cfg.SignalMaxSpoofScore < 0 || cfg.SignalMaxSpoofScore > 100 || cfg.SignalMaxActiveGlobal < 0 || cfg.SignalMaxActivePerPair < 0 || cfg.SignalMaxActiveCluster < 0 || cfg.SignalMaxNewPerMinute < 0 || cfg.SignalPairCooldown < 0 || cfg.SignalMinTrendAlignment < -1 || cfg.SignalMinTrendAlignment > 1 { return cfg, fmt.Errorf("invalid signal engine configuration") }
 	return cfg, nil
 }
 

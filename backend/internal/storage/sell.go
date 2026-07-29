@@ -62,7 +62,9 @@ func (r *Repository) SaveSellSignal(ctx context.Context, signal domain.Signal, e
 			sell_base_threshold, sell_final_threshold,
 			trade_flow_snapshot, bearish_structure_snapshot, spoof_analysis,
 			supporting_evidence, contradicting_evidence,
-			invalidation_condition, invalidation_reason
+			invalidation_condition, invalidation_reason,
+			record_kind, decision_stage, is_actionable, notification_eligible,
+			actual_score, final_threshold, score_margin, blocked_stage, evaluated_at
 		) VALUES (
 			$1::uuid,$2,$3,$4,$5,$6,$7,$8,$9,$10,
 			'{}'::jsonb,$11::jsonb,$12::jsonb,$13::jsonb,
@@ -72,7 +74,8 @@ func (r *Repository) SaveSellSignal(ctx context.Context, signal domain.Signal, e
 			$24,$25,$26,$27,$28,
 			$29::jsonb,$30::jsonb,$31::jsonb,
 			$32::jsonb,$33::jsonb,
-			$34::jsonb,$35
+			$34::jsonb,$35,
+			$36,$37,$38,$39,$40,$41,$42,$43,$44
 		)
 		ON CONFLICT (id) DO NOTHING
 	`,
@@ -88,6 +91,8 @@ func (r *Repository) SaveSellSignal(ctx context.Context, signal domain.Signal, e
 		tradeFlowJSON, structureJSON, spoofJSON,
 		supportingJSON, contradictingJSON,
 		invalidationJSON, extras.InvalidationReason,
+		signal.RecordKind, signal.DecisionStage, signal.IsActionable, signal.NotificationEligible,
+		signal.ActualScore, signal.FinalThreshold, signal.ScoreMargin, signal.BlockedStage, signal.EvaluatedAt,
 	)
 	return err
 }
@@ -246,6 +251,8 @@ func (r *Repository) ListActiveSignals(ctx context.Context, filter ActiveSignalF
 	query := fmt.Sprintf(`
 		SELECT id::text, symbol, signal_type, status, primary_timeframe,
 			entry_price, invalidation_price, target_price_1, target_price_2,
+			record_kind, decision_stage, is_actionable, notification_eligible,
+			actual_score, final_threshold, score_margin, blocked_stage, evaluated_at,
 			rule_score, reasons, risk_flags, feature_snapshot,
 			signal_version, evidence, threshold_detail, data_quality_score,
 			data_quality_status, data_source, missing_features, blocked_reasons,
@@ -298,6 +305,8 @@ func (r *Repository) ListSellSignals(ctx context.Context, symbol string, limit i
 	query := `
 		SELECT id::text, symbol, signal_type, status, primary_timeframe,
 			entry_price, invalidation_price, target_price_1, target_price_2,
+			record_kind, decision_stage, is_actionable, notification_eligible,
+			actual_score, final_threshold, score_margin, blocked_stage, evaluated_at,
 			rule_score, reasons, risk_flags, feature_snapshot,
 			signal_version, evidence, threshold_detail, data_quality_score,
 			data_quality_status, data_source, missing_features, blocked_reasons,
@@ -332,6 +341,8 @@ func (r *Repository) GetSellSignal(ctx context.Context, id string) (SellSignalDe
 	row := r.pool.QueryRow(ctx, `
 		SELECT id::text, symbol, signal_type, status, primary_timeframe,
 			entry_price, invalidation_price, target_price_1, target_price_2,
+			record_kind, decision_stage, is_actionable, notification_eligible,
+			actual_score, final_threshold, score_margin, blocked_stage, evaluated_at,
 			rule_score, reasons, risk_flags, feature_snapshot,
 			signal_version, evidence, threshold_detail, data_quality_score,
 			data_quality_status, data_source, missing_features, blocked_reasons,
@@ -354,7 +365,10 @@ func scanSellSignal(row rowScanner) (SellSignalDetail, error) {
 	err := row.Scan(
 		&detail.ID, &detail.Symbol, &detail.Type, &detail.Status, &detail.PrimaryTimeframe,
 		&detail.EntryPrice, &detail.Invalidation, &detail.Target1, &detail.Target2,
+		&detail.RecordKind, &detail.DecisionStage, &detail.IsActionable, &detail.NotificationEligible,
+		&detail.ActualScore, &detail.FinalThreshold, &detail.ScoreMargin, &detail.BlockedStage, &detail.EvaluatedAt,
 		&detail.RuleScore, &reasonsJSON, &riskJSON, &featureJSON,
+
 		&versionJSON, &evidenceJSON, &thresholdJSON, &detail.DataQualityScore,
 		&detail.DataQualityStatus, &detail.DataSource, &missingFeaturesJSON, &blockedReasonsJSON,
 		&detail.CreatedAt, &detail.ExpiresAt,

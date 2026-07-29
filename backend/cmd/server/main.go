@@ -81,7 +81,7 @@ func main() {
 	qualityMetrics := quality.NewMetrics()
 	qualityRepo := quality.NewRepository(repo.Pool())
 
-	signalEngine := signals.New(cfg.SignalMinScore, cfg.SignalPairCooldown, aiClient, qualitySvc, qualityMetrics)
+	signalEngine := signals.New(signals.FromAppConfig(&cfg), aiClient, qualitySvc, qualityMetrics)
 
 	// SELL signal engine (protective sell / take-profit / avoid-entry / exit
 	// warning). Fully independent state from the BUY engine — see

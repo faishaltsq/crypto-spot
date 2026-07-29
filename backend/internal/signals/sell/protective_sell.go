@@ -128,12 +128,39 @@ func baseSignal(f FeatureSnapshot, signalType, status string, ruleScore float64,
 		SpoofScore:           f.SpoofScoreRaw,
 		SpoofStatus:          f.SpoofStatus,
 	}
+	recordKind := domain.RecordKindCandidate
+	isActionable := false
+	notificationEligible := false
+	blockedStage := ""
+
+	if status == "BLOCKED" {
+		recordKind = domain.RecordKindBlockedAudit
+		blockedStage = "EVALUATION"
+	} else if status == "SETUP" || signalType == domain.SellSignalSetup {
+		recordKind = domain.RecordKindActionableSetup
+		isActionable = true
+		notificationEligible = true
+	} else if status == "CONFIRMED" || signalType == domain.SellSignalConfirmed {
+		recordKind = domain.RecordKindActionableConfirmed
+		isActionable = true
+		notificationEligible = true
+	}
+
 	sig := &domain.Signal{
 		ID:                newSignalID(),
 		Symbol:            f.Symbol,
 		Type:              signalType,
 		Status:            status,
 		PrimaryTimeframe:  choosePrimaryTimeframe(f),
+		RecordKind:        recordKind,
+		DecisionStage:     "EVALUATED",
+		IsActionable:      isActionable,
+		NotificationEligible: notificationEligible,
+		ActualScore:       thresholdResult.ActualScore,
+		FinalThreshold:    thresholdResult.FinalThreshold,
+		ScoreMargin:       thresholdResult.ActualScore - thresholdResult.FinalThreshold,
+		BlockedStage:      blockedStage,
+		EvaluatedAt:       now,
 		EntryPrice:        f.Price,
 		Target1:           target1,
 		Target2:           target2,

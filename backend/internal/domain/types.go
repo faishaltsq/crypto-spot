@@ -309,6 +309,16 @@ type ThresholdDetail struct {
 
 type Signal struct {
 	ID                string            `json:"id"`
+	RecordKind           string            `json:"recordKind"`
+	DecisionStage        string            `json:"decisionStage"`
+	IsActionable         bool              `json:"isActionable"`
+	NotificationEligible bool              `json:"notificationEligible"`
+	ActualScore          float64           `json:"actualScore"`
+	FinalThreshold       float64           `json:"finalThreshold"`
+	ScoreMargin          float64           `json:"scoreMargin"`
+	BlockedStage         string            `json:"blockedStage,omitempty"`
+	EvaluatedAt          time.Time         `json:"evaluatedAt"`
+
 	Symbol            string            `json:"symbol"`
 	Type              string            `json:"type"`
 	Status            string            `json:"status"`

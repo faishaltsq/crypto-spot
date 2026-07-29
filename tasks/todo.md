@@ -1,5 +1,27 @@
 # Dynamic Signal Threshold Tasks
 
+## Refactor BUY Engine Configuration (Fase 2) 2026-07-29
+
+- [x] Replace hardcoded BUY engine thresholds with a real EngineConfig struct wired from env/Admin Settings to runtime decisions; remove dead config fields.
+  - Owner: `opencode-buy-engine-config`
+  - Started (UTC): `2026-07-29T18:00:00Z`
+  - Files: `backend/internal/signals/config.go`, `backend/internal/signals/engine.go`, `backend/internal/signals/engine_test.go`, `backend/cmd/server/main.go`, `backend/internal/config/config.go`
+  - Verify: `cd backend; go build ./...; go test ./...`
+  - State: `done`
+  - Result: Rewrote `signals.EngineConfig` to hold only fields BUY actually consumes: `ConfirmScore`, `MaxSpoofScore`, `MinTrendAlignment`, `PairCooldown`, `MaxNewPerMinute`, plus 3 config-only `MaxActive*` limits (parity with SELL, not yet enforced on hot path by either engine). Deleted dead consts `MinRuleScoreForSetup`, `MinRuleScoreForConfirmed`, `MinDataQualityForSignal`, `MaxSpoofScoreForConfirmed`, `MinTrendAlignmentForConfirmed`, `MaxActiveSignalsGlobal`, and the never-read `Engine.activeCount`/`minScore`/`confirmScore` fields. `engine.go` now reads all gates from a snapshot of `e.cfg` taken under lock in `Evaluate`. Core bug fixed: `New()` now takes `EngineConfig` via new `signals.FromAppConfig(&cfg)`, so `SignalConfirmScore`/`SignalMaxSpoofScore`/`SignalMaxNewPerMinute` (previously loaded, validated, then ignored while engine used hardcoded 80/60/5) now reach the engine at startup, after `applyStoredSettings`. Added config-driven `SignalMinTrendAlignment` (env `SIGNAL_MIN_TREND_ALIGNMENT`, default 0.20; was hardcoded). Added `Engine.SetConfig()` live-reload method (validates before swap) mirroring `SetThresholdConfig`. Decisions (user-approved): `MinModelProbability` deleted (no real model_probability exists); score/data-quality gate fields NOT added to BUY (threshold-based arch has no consumption point); active-count enforcement deferred to a future BUY+SELL-symmetric fase. 4 new integration tests prove config flips CONFIRMED/SETUP and that SetConfig hot-swaps + rejects invalid. `go build ./...` and `go test ./...` both green. Runtime (post-boot) Admin Settings hot-reload deferred: needs `httpapi/server.go` (out of lock) to thread the engine into `saveAdminSettings` — see follow-up below.
+  - Follow-up: (1) Wire runtime Admin Settings PUT -> `signalEngine.SetConfig` (thread engine through `httpapi.New`). (2) Design real `MaxActiveGlobal/PerPair/PerCluster` enforcement for BOTH BUY and SELL (needs an active-signal count query; tier lives in `feature_snapshot` JSONB, not a `signals` column). (3) SELL engine has the same dead-field pattern (`MaxActive*`, `activeCount`, `RequireExecutedTradeConfirm`, `RequireFailedReclaim`, `MinModelProbability`, `MinTradeflowScore`) — out of this fase's scope. (4) Stale comment referencing removed `MinDataQualityForSignal` const in `backend/internal/config/sell_load.go:19`.
+
+## Refactor Signals Record Kind 2026-07-29
+
+- [x] Implement record_kind states and new fields to differentiate actionable signals from candidates.
+  - Owner: `opencode-refactor-signals`
+  - Started (UTC): `2026-07-29T17:00:00Z`
+  - Files: `backend/internal/domain/types.go`, `backend/internal/domain/signal_status.go`, `backend/internal/signals/engine.go`, `backend/internal/signals/sell/engine.go`, `backend/internal/signals/sell/protective_sell.go`, `backend/internal/signals/sell/engine_test.go`, `backend/migrations/versioned/013_signal_record_kind.up.sql`, `backend/migrations/versioned/checksums.sha256`
+  - Verify: `cd backend; go build ./...; go test ./...` and `cd web; npm run build`
+  - State: `done`
+  - Result: Fixed `WATCH` status handling in BUY engine to avoid premature drops. Refactored SELL engine (`backend/internal/signals/sell/engine.go`) to emit `BLOCKED` audit signals instead of silently returning `nil, false` when `hardGates` fail. `protective_sell.go` now sets `RecordKind`, `DecisionStage`, `BlockedStage` when producing `baseSignal`. SELL engine tests were updated to expect a returned signal with `Status = "BLOCKED"` instead of `nil`. Updated migration `013_signal_record_kind.up.sql` to also mark existing `status = 'BLOCKED'` as `record_kind = 'BLOCKED_AUDIT'` correctly. Regenerated hash in `checksums.sha256`. All backend tests passed!
+
+
 ## Fix sparse/broken candle chart for newly-added pairs 2026-07-29
 
 - [x] Backfill REST klines for pairs added to the universe after startup; show placeholder instead of a stretched single candle.

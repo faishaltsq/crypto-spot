@@ -96,9 +96,9 @@ func TestEngineEvaluateBlocksOnUnsyncedOrderbook(t *testing.T) {
 	f := bearishSnapshot("BTC_USDT")
 	f.OrderbookSynced = false
 
-	_, created := engine.Evaluate(f, ActiveBuyContext{})
-	if created {
-		t.Fatal("expected no signal when orderbook is unsynced")
+	sig, created := engine.Evaluate(f, ActiveBuyContext{})
+	if !created || sig == nil || sig.Status != "BLOCKED" {
+		t.Fatal("expected BLOCKED signal when orderbook is unsynced")
 	}
 }
 
@@ -107,9 +107,9 @@ func TestEngineEvaluateBlocksOnInsufficientTradeSample(t *testing.T) {
 	f := bearishSnapshot("BTC_USDT")
 	f.TradeFlow.SampleStatus = tradeflow.SampleInsufficient
 
-	_, created := engine.Evaluate(f, ActiveBuyContext{})
-	if created {
-		t.Fatal("expected no signal when trade sample is insufficient")
+	sig, created := engine.Evaluate(f, ActiveBuyContext{})
+	if !created || sig == nil || sig.Status != "BLOCKED" {
+		t.Fatal("expected BLOCKED signal when trade sample is insufficient")
 	}
 }
 
@@ -118,9 +118,9 @@ func TestEngineEvaluateBlocksOnLowDataQuality(t *testing.T) {
 	f := bearishSnapshot("BTC_USDT")
 	f.DataQualityScore = 10
 
-	_, created := engine.Evaluate(f, ActiveBuyContext{})
-	if created {
-		t.Fatal("expected no signal when data quality is below minimum")
+	sig, created := engine.Evaluate(f, ActiveBuyContext{})
+	if !created || sig == nil || sig.Status != "BLOCKED" {
+		t.Fatal("expected BLOCKED signal when data quality is below minimum")
 	}
 }
 

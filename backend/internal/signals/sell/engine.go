@@ -40,8 +40,13 @@ func (e *Engine) Evaluate(f FeatureSnapshot, buyCtx ActiveBuyContext) (*domain.S
 
 	rejectionReasons := e.hardGates(f)
 	if len(rejectionReasons) > 0 {
-		return nil, false
+		// Fase 1: Jangan menghapus blocked candidate. Simpan sebagai audit.
+		sig := baseSignal(f, "SELL_CANDIDATE", "BLOCKED", 0, threshold.Result{Blocked: true, ReasonCodes: rejectionReasons})
+		sig.RecordKind = domain.RecordKindBlockedAudit
+		sig.BlockedStage = "EVALUATION"
+		return sig, true
 	}
+
 
 	ruleScore := RuleScore(f)
 	thresholdResult := threshold.Calculate(e.cfg.ThresholdConfig, thresholdInputFrom(f, ruleScore))

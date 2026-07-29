@@ -5,6 +5,17 @@ import (
 	"time"
 )
 
+// RecordKind definitions to separate actionable signals from audit/candidates
+const (
+	RecordKindCandidate           = "CANDIDATE"
+	RecordKindWatch               = "WATCH"
+	RecordKindActionableSetup     = "ACTIONABLE_SETUP"
+	RecordKindActionableConfirmed = "ACTIONABLE_CONFIRMED"
+	RecordKindBlockedAudit        = "BLOCKED_AUDIT"
+	RecordKindSuppressedAudit     = "SUPPRESSED_AUDIT"
+	RecordKindTerminal            = "TERMINAL"
+)
+
 // Terminal statuses are lifecycle end-states: once a signal reaches one of
 // these, it can never be considered active again, regardless of signal
 // type. This is backend-owned business logic — the frontend must never

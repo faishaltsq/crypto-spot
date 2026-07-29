@@ -264,13 +264,16 @@ func (r *Repository) SaveSignal(ctx context.Context, signal domain.Signal) error
 			rule_score, ai_review, reasons, risk_flags, feature_snapshot,
 			signal_version, evidence, threshold_detail, data_quality_score,
 			data_quality_status, data_source, missing_features, blocked_reasons,
-			created_at, expires_at
+			created_at, expires_at,
+			record_kind, decision_stage, is_actionable, notification_eligible,
+			actual_score, final_threshold, score_margin, blocked_stage, evaluated_at
 		) VALUES (
 			$1::uuid,$2,$3,$4,$5,$6,$7,$8,$9,$10,
 			$11::jsonb,$12::jsonb,$13::jsonb,$14::jsonb,
 			$15::jsonb,$16::jsonb,$17::jsonb,$18,
 			$19,$20,$21::jsonb,$22::jsonb,
-			$23,$24
+			$23,$24,
+			$25,$26,$27,$28,$29,$30,$31,$32,$33
 		)
 		ON CONFLICT (id) DO NOTHING
 	`,
@@ -298,6 +301,15 @@ func (r *Repository) SaveSignal(ctx context.Context, signal domain.Signal) error
 		blockedReasonsJSON,
 		signal.CreatedAt,
 		signal.ExpiresAt,
+		signal.RecordKind,
+		signal.DecisionStage,
+		signal.IsActionable,
+		signal.NotificationEligible,
+		signal.ActualScore,
+		signal.FinalThreshold,
+		signal.ScoreMargin,
+		signal.BlockedStage,
+		signal.EvaluatedAt,
 	)
 	return err
 }
@@ -309,6 +321,8 @@ func (r *Repository) ListSignals(ctx context.Context, limit int) ([]domain.Signa
 	rows, err := r.pool.Query(ctx, `
 		SELECT id::text, symbol, signal_type, status, primary_timeframe,
 			entry_price, invalidation_price, target_price_1, target_price_2,
+			record_kind, decision_stage, is_actionable, notification_eligible,
+			actual_score, final_threshold, score_margin, blocked_stage, evaluated_at,
 			rule_score, ai_review, reasons, risk_flags, feature_snapshot,
 			signal_version, evidence, threshold_detail, data_quality_score,
 			data_quality_status, data_source, missing_features, blocked_reasons,
@@ -470,6 +484,8 @@ func (r *Repository) ListSignalsFiltered(ctx context.Context, filter SignalFilte
 	query := fmt.Sprintf(`
 		SELECT id::text, symbol, signal_type, status, primary_timeframe,
 			entry_price, invalidation_price, target_price_1, target_price_2,
+			record_kind, decision_stage, is_actionable, notification_eligible,
+			actual_score, final_threshold, score_margin, blocked_stage, evaluated_at,
 			rule_score, ai_review, reasons, risk_flags, feature_snapshot,
 			signal_version, evidence, threshold_detail, data_quality_score,
 			data_quality_status, data_source, missing_features, blocked_reasons,
@@ -504,6 +520,8 @@ func (r *Repository) GetSignal(ctx context.Context, id string) (domain.Signal, e
 	row := r.pool.QueryRow(ctx, `
 		SELECT id::text, symbol, signal_type, status, primary_timeframe,
 			entry_price, invalidation_price, target_price_1, target_price_2,
+			record_kind, decision_stage, is_actionable, notification_eligible,
+			actual_score, final_threshold, score_margin, blocked_stage, evaluated_at,
 			rule_score, ai_review, reasons, risk_flags, feature_snapshot,
 			signal_version, evidence, threshold_detail, data_quality_score,
 			data_quality_status, data_source, missing_features, blocked_reasons,
@@ -588,6 +606,15 @@ func scanSignal(row rowScanner) (domain.Signal, error) {
 		&signal.Invalidation,
 		&signal.Target1,
 		&signal.Target2,
+		&signal.RecordKind,
+		&signal.DecisionStage,
+		&signal.IsActionable,
+		&signal.NotificationEligible,
+		&signal.ActualScore,
+		&signal.FinalThreshold,
+		&signal.ScoreMargin,
+		&signal.BlockedStage,
+		&signal.EvaluatedAt,
 		&signal.RuleScore,
 		&aiJSON,
 		&reasonsJSON,

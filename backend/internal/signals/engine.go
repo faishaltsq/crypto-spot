@@ -14,30 +14,14 @@ import (
 	"github.com/google/uuid"
 )
 
-// Signal gate thresholds.
-// These are the source of truth for what constitutes a confirmed signal.
-const (
-	// MinRuleScoreForSetup — minimum rule score to enter BUY_SETUP
-	MinRuleScoreForSetup = 70.0
+// DefaultConfirmScore is the fallback BUY_CONFIRMED rule-score threshold
+// used only when no EngineConfig is supplied (e.g. zero-value construction
+// in tests). Production construction always passes an explicit ConfirmScore
+// via New(EngineConfig{...}). All live gating reads e.cfg, never a const.
+const DefaultConfirmScore = 80.0
 
-	// MinRuleScoreForConfirmed — minimum rule score to produce BUY_CONFIRMED
-	MinRuleScoreForConfirmed = 80.0
-
-	// MinDataQualityForSignal — below this data quality, no signal can be issued
-	MinDataQualityForSignal = 75.0
-
-	// MaxSpoofScoreForConfirmed — spoof score above this blocks BUY_CONFIRMED
-	MaxSpoofScoreForConfirmed = 60.0
-
-	// MinTrendAlignmentForConfirmed — below this, can produce SETUP but not CONFIRMED
-	MinTrendAlignmentForConfirmed = 0.20
-
-	// BurstWindow — minimum time between signals across all pairs (anti-burst)
-	BurstWindow = 3 * time.Second
-
-	// MaxActiveSignalsGlobal — hard cap on total active signals
-	MaxActiveSignalsGlobal = 15
-)
+// BurstWindow — minimum time between signals across all pairs (anti-burst).
+const BurstWindow = 3 * time.Second
 
 // burstGuard prevents signal bursts across ALL pairs.
 type burstGuard struct {
@@ -69,44 +53,62 @@ func (b *burstGuard) allow(maxPerMin int) bool {
 }
 
 type Engine struct {
-	minScore     float64
-	confirmScore float64
-	cooldown     time.Duration
-	maxPerMin    int
-	ai           *ai.Client
-	qualitySvc   *quality.Service
-	metrics      *quality.Metrics
-	thresholdCfg threshold.Config
+	ai         *ai.Client
+	qualitySvc *quality.Service
+	metrics    *quality.Metrics
+
 	mu           sync.Mutex
+	cfg          EngineConfig
+	thresholdCfg threshold.Config
 	last         map[string]time.Time // per-pair cooldown
 	burst        burstGuard
-	activeCount  int
 }
 
-func New(minScore float64, cooldown time.Duration, aiClient *ai.Client, qualitySvc *quality.Service, metrics *quality.Metrics) *Engine {
-	thresholdCfg, err := threshold.LoadConfig(MinRuleScoreForConfirmed)
+// New constructs a BUY engine from a resolved EngineConfig. The threshold
+// calculator's base is seeded from cfg.ConfirmScore so a zero-value config
+// still yields a sane threshold. If cfg.ConfirmScore is zero (unset),
+// DefaultConfirmScore is used as the threshold base only.
+func New(cfg EngineConfig, aiClient *ai.Client, qualitySvc *quality.Service, metrics *quality.Metrics) *Engine {
+	thresholdBase := cfg.ConfirmScore
+	if thresholdBase <= 0 {
+		thresholdBase = DefaultConfirmScore
+	}
+	thresholdCfg, err := threshold.LoadConfig(thresholdBase)
 	if err != nil {
 		log.Printf("threshold configuration invalid, using defaults: %v", err)
-		thresholdCfg = threshold.DefaultConfig(MinRuleScoreForConfirmed)
+		thresholdCfg = threshold.DefaultConfig(thresholdBase)
 	}
 	return &Engine{
-		minScore:     minScore,
-		confirmScore: MinRuleScoreForConfirmed,
-		cooldown:     cooldown,
-		maxPerMin:    5, // hard cap: max 5 signals per minute across all pairs
 		ai:           aiClient,
 		qualitySvc:   qualitySvc,
 		metrics:      metrics,
+		cfg:          cfg,
 		thresholdCfg: thresholdCfg,
 		last:         make(map[string]time.Time),
 	}
+}
+
+// SetConfig atomically swaps the live EngineConfig used by Evaluate. This is
+// the live-reload entry point invoked when Admin Settings change so runtime
+// gating actually reflects stored settings (the fase-2 bug fix). It is
+// analogous to SetThresholdConfig but for the engine's own gates.
+func (e *Engine) SetConfig(cfg EngineConfig) error {
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+	e.mu.Lock()
+	e.cfg = cfg
+	e.mu.Unlock()
+	return nil
 }
 
 func (e *Engine) SetThresholdConfig(cfg threshold.Config) error {
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
+	e.mu.Lock()
 	e.thresholdCfg = cfg
+	e.mu.Unlock()
 	return nil
 }
 
@@ -129,30 +131,37 @@ func (e *Engine) Evaluate(ctx context.Context, feature domain.FeatureSnapshot) (
 	// ── GATE 2: Data quality must be valid ───────────────────────────────────
 	// ── GATE 2: Candidate status ─────────────────────────────────────────────
 	// BLOCKED candidates are persisted as audits so API/UI can explain rejection.
-	if feature.Status != "BUY_SETUP" && feature.Status != "BUY_CONFIRMED_CANDIDATE" && feature.Status != "BLOCKED" {
+	if feature.Status != "BUY_SETUP" && feature.Status != "BUY_CONFIRMED_CANDIDATE" && feature.Status != "BLOCKED" && feature.Status != "WATCH" {
 		if len(rejectionReasons) > 0 {
 			return nil, false
 		}
 		return nil, false
 	}
 
-	thresholdResult := threshold.Calculate(e.thresholdCfg, thresholdInput(feature))
+	// Snapshot live config + threshold under the lock so a concurrent
+	// SetConfig/SetThresholdConfig can't tear reads within one evaluation.
+	e.mu.Lock()
+	cfg := e.cfg
+	thresholdCfg := e.thresholdCfg
+	e.mu.Unlock()
+
+	thresholdResult := threshold.Calculate(thresholdCfg, thresholdInput(feature))
 	shouldRateLimit := !thresholdResult.Blocked && thresholdResult.Passed && len(feature.BlockedReasons) == 0
 
 	// ── GATE 5: Per-pair cooldown ─────────────────────────────────────────────
 	if shouldRateLimit {
 		e.mu.Lock()
 		last := e.last[feature.Symbol]
-		if !last.IsZero() && time.Since(last) < e.cooldown {
+		if !last.IsZero() && time.Since(last) < cfg.PairCooldown {
 			e.mu.Unlock()
-			log.Printf("[signal] COOLDOWN %s: next allowed at %s", feature.Symbol, last.Add(e.cooldown).Format(time.RFC3339))
+			log.Printf("[signal] COOLDOWN %s: next allowed at %s", feature.Symbol, last.Add(cfg.PairCooldown).Format(time.RFC3339))
 			return nil, false
 		}
 		e.mu.Unlock()
 	}
 
 	// ── GATE 6: Anti-burst (global) ───────────────────────────────────────────
-	if shouldRateLimit && !e.burst.allow(e.maxPerMin) {
+	if shouldRateLimit && !e.burst.allow(cfg.MaxNewPerMinute) {
 		log.Printf("[signal] BURST_LIMIT %s: global signal rate limit hit", feature.Symbol)
 		return nil, false
 	}
@@ -170,10 +179,10 @@ func (e *Engine) Evaluate(ctx context.Context, feature domain.FeatureSnapshot) (
 	if !thresholdResult.Passed {
 		confirmBlockedReasons = append(confirmBlockedReasons, domain.ReasonInsufficientRuleScore)
 	}
-	if feature.SpoofScore > MaxSpoofScoreForConfirmed {
+	if feature.SpoofScore > cfg.MaxSpoofScore {
 		confirmBlockedReasons = append(confirmBlockedReasons, domain.ReasonHighSpoofRisk)
 	}
-	if feature.TrendAlignment < MinTrendAlignmentForConfirmed {
+	if feature.TrendAlignment < cfg.MinTrendAlignment {
 		confirmBlockedReasons = append(confirmBlockedReasons, domain.ReasonLowTrendAlignment)
 	}
 
@@ -251,12 +260,44 @@ func (e *Engine) Evaluate(ctx context.Context, feature domain.FeatureSnapshot) (
 		allBlocked = append(allBlocked, thresholdResult.ReasonCodes...)
 	}
 
+	recordKind := "CANDIDATE"
+	isActionable := false
+	notificationEligible := false
+	blockedStage := ""
+
+	if status == "BLOCKED" {
+		recordKind = domain.RecordKindBlockedAudit
+		blockedStage = "EVALUATION"
+	} else if status == "SETUP" {
+		recordKind = domain.RecordKindActionableSetup
+		isActionable = true
+		notificationEligible = true
+	} else if status == "CONFIRMED" {
+		recordKind = domain.RecordKindActionableConfirmed
+		isActionable = true
+		notificationEligible = true
+	}
+
+	if feature.Status == "WATCH" {
+		recordKind = domain.RecordKindWatch
+		status = "WATCH" // Override DB status for watch
+	}
+
 	signal := &domain.Signal{
 		ID:                uuid.NewString(),
 		Symbol:            feature.Symbol,
 		Type:              signalType,
 		Status:            status,
 		PrimaryTimeframe:  choosePrimaryTimeframe(feature),
+		RecordKind:        recordKind,
+		DecisionStage:     "EVALUATED",
+		IsActionable:      isActionable,
+		NotificationEligible: notificationEligible,
+		ActualScore:       thresholdResult.ActualScore,
+		FinalThreshold:    thresholdResult.FinalThreshold,
+		ScoreMargin:       thresholdResult.ActualScore - thresholdResult.FinalThreshold,
+		BlockedStage:      blockedStage,
+		EvaluatedAt:       now,
 		EntryPrice:        entry,
 		Invalidation:      invalidation,
 		Target1:           target1,
