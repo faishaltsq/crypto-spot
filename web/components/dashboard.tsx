@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
-import { getPair, getPerformanceSummary, getQualityStats, getScanner, getSignals } from "@/lib/api";
+import { getPair, getPerformanceSummary, getPublicConfig, getQualityStats, getScanner, getSignals } from "@/lib/api";
 import { formatCompact, formatPercent, formatPrice, formatTime } from "@/lib/format";
 import { useRealtime } from "@/hooks/use-realtime";
 import type {
@@ -51,6 +51,10 @@ export function Dashboard() {
   const [performance, setPerformance] = useState<PerformanceSummary | null>(null);
   const [qualityStats, setQualityStats] = useState<QualityStats | null>(null);
   const [notificationMinScore, setNotificationMinScore] = useState(80);
+  // Signals below this score are still scanned/persisted in the background
+  // (backend keeps evaluating every pair); we just skip rendering them here
+  // so the realtime feed doesn't flood the UI with sub-threshold noise.
+  const [signalMinScore, setSignalMinScore] = useState(70);
   const [loadingPair, setLoadingPair] = useState(false);
   const [error, setError] = useState<string>("");
   const [notifications, setNotifications] = useState<NotificationPermission | "unsupported">("unsupported");
@@ -63,14 +67,16 @@ export function Dashboard() {
 
   const loadInitial = useCallback(async () => {
     try {
-      const [scannerData, signalData, performanceData, statsData] = await Promise.all([
+      const [scannerData, signalData, performanceData, statsData, config] = await Promise.all([
         getScanner(),
         getSignals(50),
         getPerformanceSummary(),
         getQualityStats().catch(() => null),
+        getPublicConfig().catch(() => null),
       ]);
+      if (config) setSignalMinScore(config.signalMinScore);
       setScanner(scannerData);
-      setSignals(signalData);
+      setSignals(signalData.filter((s) => s.ruleScore >= (config?.signalMinScore ?? 0)));
       setPerformance(performanceData);
       setQualityStats(statsData);
       setSelected((current) => {
@@ -126,15 +132,22 @@ export function Dashboard() {
     }
     if (message.event === "signal.created") {
       const signal = message.data as Signal;
-      setSignals((current) => [signal, ...current].slice(0, 100));
-      void showSignalNotification(signal, notificationMinScore);
+      // Backend still scans and stores every candidate regardless of score;
+      // we only skip appending sub-threshold ones to this live list so the
+      // history panel doesn't get flooded and lag the page.
+      if (signal.ruleScore >= signalMinScore) {
+        setSignals((current) => [signal, ...current].slice(0, 100));
+        void showSignalNotification(signal, notificationMinScore);
+      }
     }
     if (message.event === "sell.signal.created") {
       const signal = message.data as Signal;
-      setSignals((current) => [signal, ...current].slice(0, 100));
-      void showSignalNotification(signal, notificationMinScore);
+      if (signal.ruleScore >= signalMinScore) {
+        setSignals((current) => [signal, ...current].slice(0, 100));
+        void showSignalNotification(signal, notificationMinScore);
+      }
     }
-  }, [notificationMinScore]);
+  }, [notificationMinScore, signalMinScore]);
 
   useRealtime({
     onMessage: handleRealtime,

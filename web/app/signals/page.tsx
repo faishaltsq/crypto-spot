@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { GlobalHeader } from '@/components/terminal/TerminalHeader';
-import { getSignalsFiltered, exportSignalsCSV } from '@/lib/api';
+import { getSignalsFiltered, exportSignalsCSV, getPublicConfig } from '@/lib/api';
 import { Signal } from '@/types/market';
 import { isSignalActive } from '@/lib/signal-status';
 import { Search, Download, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -15,6 +15,11 @@ export default function SignalsPage() {
   const [data, setData] = useState<{ signals: Signal[]; total: number }>({ signals: [], total: 0 });
   const [loading, setLoading] = useState(true);
   const [offset, setOffset] = useState(0);
+  // Below-threshold candidates are still scanned and stored in the background;
+  // we default-filter them out here to avoid rendering a flood of low-score
+  // rows that aren't actionable and cause list lag. Users can lower this
+  // filter manually to inspect below-threshold history if needed.
+  const [minScoreReady, setMinScoreReady] = useState(false);
   const [filters, setFilters] = useState({
     status: '',
     symbol: '',
@@ -24,6 +29,15 @@ export default function SignalsPage() {
     createdFrom: '',
     createdTo: '',
   });
+
+  useEffect(() => {
+    getPublicConfig()
+      .then((cfg) => {
+        setFilters((f) => (f.scoreMin ? f : { ...f, scoreMin: String(cfg.signalMinScore) }));
+      })
+      .catch(() => undefined)
+      .finally(() => setMinScoreReady(true));
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -45,7 +59,10 @@ export default function SignalsPage() {
     }
   }, [offset, filters]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (!minScoreReady) return;
+    load();
+  }, [load, minScoreReady]);
 
   const totalPages = Math.ceil(data.total / PAGE_SIZE);
   const currentPage = Math.floor(offset / PAGE_SIZE) + 1;
