@@ -1,5 +1,15 @@
 # Dynamic Signal Threshold Tasks
 
+## Hide sub-threshold signals from UI to reduce lag 2026-07-29
+
+- [x] Filter below-minimum-score signals out of history/dashboard rendering (still scanned/stored in background).
+  - Owner: `opencode-ui-perf`
+  - Started (UTC): `2026-07-29T00:00:00Z`
+  - Files: `web/lib/api.ts`, `web/app/signals/page.tsx`, `web/components/dashboard.tsx`
+  - Verify: `cd web; npm run build`
+  - State: `done`
+  - Result: fixed `getSignalsFiltered`/`exportSignalsCSV` query param mismatch (`score_min`/`created_from` -> `scoreMin`/`createdFrom` to match backend `parseSignalFilter`). `/signals` page now defaults `scoreMin` filter to `cfg.signalMinScore` from `GET /api/v1/config` (user can still lower it manually). Dashboard realtime `signal.created`/`sell.signal.created` handler now skips appending signals below `signalMinScore` to the live history panel. Backend unchanged: scanning/persistence of sub-threshold candidates is untouched, only UI rendering is filtered. `cd web; npm run build` passed.
+
 ## SL-Hit Stale Active Signal + Stale Docker Image Fix 2026-07-28
 
 - [x] Fix SELL signals staying in Active Signals / chart drawings not clearing after stop-loss hit; fix stale Docker images masking source changes.

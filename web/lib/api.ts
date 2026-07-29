@@ -32,6 +32,15 @@ export function getScanner(): Promise<FeatureSnapshot[]> {
   return request<FeatureSnapshot[]>("/api/v1/scanner");
 }
 
+export interface PublicConfig {
+  signalMinScore: number;
+  [key: string]: unknown;
+}
+
+export function getPublicConfig(): Promise<PublicConfig> {
+  return request<PublicConfig>("/api/v1/config");
+}
+
 export function getSignals(limit = 50): Promise<Signal[]> {
   return request<Signal[] | { signals: Signal[]; total: number }>(`/api/v1/signals?limit=${limit}`).then(res => {
     // Handle both old array format and new paginated format
@@ -64,11 +73,11 @@ export function getSignalsFiltered(params: SignalFilterParams): Promise<Paginate
   if (params.status) qs.set('status', params.status);
   if (params.symbol) qs.set('symbol', params.symbol);
   if (params.type) qs.set('type', params.type);
-  if (params.createdFrom) qs.set('created_from', params.createdFrom);
-  if (params.createdTo) qs.set('created_to', params.createdTo);
-  if (params.scoreMin !== undefined) qs.set('score_min', String(params.scoreMin));
-  if (params.scoreMax !== undefined) qs.set('score_max', String(params.scoreMax));
-  if (params.orderBy) qs.set('order_by', params.orderBy);
+  if (params.createdFrom) qs.set('createdFrom', params.createdFrom);
+  if (params.createdTo) qs.set('createdTo', params.createdTo);
+  if (params.scoreMin !== undefined) qs.set('scoreMin', String(params.scoreMin));
+  if (params.scoreMax !== undefined) qs.set('scoreMax', String(params.scoreMax));
+  if (params.orderBy) qs.set('orderBy', params.orderBy);
   return request<PaginatedSignals>(`/api/v1/signals?${qs.toString()}`);
 }
 
@@ -161,10 +170,10 @@ export async function exportSignalsCSV(params: SignalFilterParams): Promise<Blob
   if (params.status) qs.set('status', params.status);
   if (params.symbol) qs.set('symbol', params.symbol);
   if (params.type) qs.set('type', params.type);
-  if (params.createdFrom) qs.set('created_from', params.createdFrom);
-  if (params.createdTo) qs.set('created_to', params.createdTo);
-  if (params.scoreMin !== undefined) qs.set('score_min', String(params.scoreMin));
-  if (params.scoreMax !== undefined) qs.set('score_max', String(params.scoreMax));
+  if (params.createdFrom) qs.set('createdFrom', params.createdFrom);
+  if (params.createdTo) qs.set('createdTo', params.createdTo);
+  if (params.scoreMin !== undefined) qs.set('scoreMin', String(params.scoreMin));
+  if (params.scoreMax !== undefined) qs.set('scoreMax', String(params.scoreMax));
   const res = await fetch(`${API_URL}/api/v1/signals/export?${qs.toString()}`);
   if (!res.ok) throw new Error('Export failed');
   return res.blob();
